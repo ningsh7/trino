@@ -54,6 +54,18 @@ final class TestDorisQueryBuilder
     }
 
     @Test
+    void testBuildSqlUsesRemoteNames()
+    {
+        DorisQueryBuilder queryBuilder = new DorisQueryBuilder();
+        DorisTableHandle tableHandle = new DorisTableHandle("sales", "orders", "Sales", "Orders");
+
+        assertThat(queryBuilder.buildSplitPlanningSql(tableHandle))
+                .isEqualTo("SELECT * FROM `Sales`.`Orders`");
+        assertThat(queryBuilder.buildSelectSql(tableHandle, List.of("id"), List.of(11L)))
+                .isEqualTo("SELECT `id` FROM `Sales`.`Orders` TABLET(11)");
+    }
+
+    @Test
     void testBuildSelectSqlUsesLiteralForEmptyProjection()
     {
         DorisQueryBuilder queryBuilder = new DorisQueryBuilder();

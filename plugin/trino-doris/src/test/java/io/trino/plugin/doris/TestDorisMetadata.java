@@ -102,6 +102,27 @@ final class TestDorisMetadata
     }
 
     @Test
+    void testGetTableHandlePreservesRemoteCaseForReads()
+    {
+        DorisRemoteTable mixedCaseOrders = new DorisRemoteTable(
+                new SchemaTableName("sales", "orders"),
+                "Sales",
+                "Orders",
+                ORDERS.columns());
+        DorisMetadata mixedCaseMetadata = new DorisMetadata(
+                new TestingDorisMetadataClient(List.of(mixedCaseOrders)),
+                new DorisTypeMapper(new DorisConfig()),
+                new DorisFilterToSql());
+
+        DorisTableHandle tableHandle = (DorisTableHandle) mixedCaseMetadata.getTableHandle(SESSION, new SchemaTableName("sales", "orders"), Optional.empty(), Optional.empty());
+
+        assertThat(tableHandle.schemaName()).isEqualTo("sales");
+        assertThat(tableHandle.tableName()).isEqualTo("orders");
+        assertThat(tableHandle.remoteSchemaName()).isEqualTo("Sales");
+        assertThat(tableHandle.remoteTableName()).isEqualTo("Orders");
+    }
+
+    @Test
     void testGetColumnHandlesAndListTableColumns()
     {
         Map<String, ColumnHandle> columnHandles = metadata.getColumnHandles(SESSION, new DorisTableHandle("ops", "events"));

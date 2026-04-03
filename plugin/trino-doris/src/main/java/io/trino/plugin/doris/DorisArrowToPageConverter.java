@@ -41,12 +41,15 @@ import org.apache.arrow.vector.TimeStampVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.types.pojo.ArrowType;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
@@ -296,11 +299,11 @@ public class DorisArrowToPageConverter
     {
         long epochMicros;
         if (vector instanceof TimeStampVector timestampVector) {
-            epochMicros = normalizeDorisTimestamp(timestampVector.get(index));
+            epochMicros = readArrowTimestampMicros(timestampVector, index);
         }
         else if (vector instanceof VarCharVector varCharVector) {
             LocalDateTime timestamp = parseTimestampText(new String(varCharVector.get(index), StandardCharsets.UTF_8));
-            epochMicros = multiplyExact(timestamp.toEpochSecond(UTC), MICROSECONDS_PER_SECOND) + (timestamp.getNano() / 1_000);
+            epochMicros = toTrinoTimestampMicros(timestamp);
         }
         else {
             throw unsupportedVector(vector);
@@ -310,6 +313,30 @@ public class DorisArrowToPageConverter
             return epochMicros;
         }
         return round(epochMicros, TIMESTAMP_MICROS.getPrecision() - precision);
+    }
+
+    private static long readArrowTimestampMicros(TimeStampVector timestampVector, int index)
+    {
+        long rawValue = timestampVector.get(index);
+        long normalizedValue = normalizeDorisTimestamp(rawValue);
+        if (normalizedValue != rawValue) {
+            return normalizedValue;
+        }
+
+        Object timestampValue = timestampVector.getObject(index);
+        if (timestampValue instanceof LocalDateTime localDateTime) {
+            return toTrinoTimestampMicros(localDateTime);
+        }
+        if (timestampValue instanceof java.time.OffsetDateTime offsetDateTime) {
+            return toTrinoTimestampMicros(offsetDateTime.toLocalDateTime());
+        }
+        if (timestampValue instanceof Long) {
+            String timeZone = arrowTimestampTimeZone(timestampVector);
+            if (timeZone != null && !timeZone.isBlank()) {
+                return toTrinoTimestampMicros(timestampMicrosToLocalDateTime(normalizedValue, timeZone));
+            }
+        }
+        return normalizedValue;
     }
 
     private static BigDecimal readDecimalValue(FieldVector vector, int index)
@@ -386,6 +413,28 @@ public class DorisArrowToPageConverter
             return multiplyExact(value, MICROSECONDS_PER_MILLISECOND);
         }
         return value;
+    }
+
+    private static long toTrinoTimestampMicros(LocalDateTime timestamp)
+    {
+        return multiplyExact(timestamp.toEpochSecond(UTC), MICROSECONDS_PER_SECOND) + (timestamp.getNano() / 1_000);
+    }
+
+    private static LocalDateTime timestampMicrosToLocalDateTime(long epochMicros, String timeZone)
+    {
+        long epochSeconds = Math.floorDiv(epochMicros, MICROSECONDS_PER_SECOND);
+        long microsOfSecond = Math.floorMod(epochMicros, MICROSECONDS_PER_SECOND);
+        return Instant.ofEpochSecond(epochSeconds, microsOfSecond * 1_000)
+                .atZone(ZoneId.of(timeZone))
+                .toLocalDateTime();
+    }
+
+    private static String arrowTimestampTimeZone(TimeStampVector timestampVector)
+    {
+        if (timestampVector.getField().getType() instanceof ArrowType.Timestamp timestampType) {
+            return timestampType.getTimezone();
+        }
+        return null;
     }
 
     private static LocalDate parseDateText(String value)

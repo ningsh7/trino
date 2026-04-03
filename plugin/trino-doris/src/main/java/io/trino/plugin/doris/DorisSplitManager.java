@@ -55,8 +55,8 @@ public class DorisSplitManager
         if (dorisTableHandle.aggregations().isPresent() || dorisTableHandle.sortOrder().isPresent()) {
             // Doris must execute pushed aggregates and global TopN exactly once.
             return new FixedSplitSource(List.of(new DorisSplit(
-                    dorisTableHandle.schemaName(),
-                    dorisTableHandle.tableName(),
+                    dorisTableHandle.remoteSchemaName(),
+                    dorisTableHandle.remoteTableName(),
                     "",
                     List.of(),
                     Optional.empty())));

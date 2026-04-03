@@ -14,6 +14,7 @@
 package io.trino.plugin.doris;
 
 import com.google.inject.Inject;
+import io.trino.spi.TrinoException;
 import io.trino.spi.connector.SchemaTableName;
 
 import java.sql.Connection;
@@ -25,31 +26,47 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
+import static java.util.Locale.ENGLISH;
 import static java.util.Objects.requireNonNull;
 
 public class JdbcDorisMetadataClient
         implements DorisMetadataClient
 {
+    private static final String READABLE_TABLES_PREDICATE = """
+            LOWER(TABLE_SCHEMA) NOT IN ('information_schema', '__internal_schema', 'mysql')
+                AND TABLE_TYPE = 'BASE TABLE'
+                AND UPPER(COALESCE(ENGINE, '')) IN ('OLAP', 'DORIS')
+            """;
     private static final String LIST_SCHEMAS_SQL = """
-            SELECT SCHEMA_NAME
-            FROM INFORMATION_SCHEMA.SCHEMATA
-            WHERE SCHEMA_NAME <> 'information_schema'
-            ORDER BY SCHEMA_NAME
+            SELECT DISTINCT TABLE_SCHEMA
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE %s
+            ORDER BY TABLE_SCHEMA
             """;
     private static final String LIST_ALL_TABLES_SQL = """
             SELECT TABLE_SCHEMA, TABLE_NAME
             FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_SCHEMA <> 'information_schema'
+            WHERE %s
             ORDER BY TABLE_SCHEMA, TABLE_NAME
             """;
     private static final String LIST_TABLES_IN_SCHEMA_SQL = """
             SELECT TABLE_SCHEMA, TABLE_NAME
             FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_SCHEMA = ?
+            WHERE %s
+              AND LOWER(TABLE_SCHEMA) = LOWER(?)
+            ORDER BY TABLE_SCHEMA, TABLE_NAME
+            """;
+    private static final String RESOLVE_TABLE_SQL = """
+            SELECT TABLE_SCHEMA, TABLE_NAME
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE %s
+              AND LOWER(TABLE_SCHEMA) = LOWER(?)
+              AND LOWER(TABLE_NAME) = LOWER(?)
             ORDER BY TABLE_SCHEMA, TABLE_NAME
             """;
     private static final String LIST_COLUMNS_SQL = """
-            SELECT COLUMN_NAME, DATA_TYPE, COLUMN_SIZE, DECIMAL_DIGITS, ORDINAL_POSITION
+            SELECT COLUMN_NAME, DATA_TYPE, COLUMN_SIZE, DECIMAL_DIGITS, ORDINAL_POSITION, COLUMN_TYPE
             FROM INFORMATION_SCHEMA.COLUMNS
             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
             ORDER BY ORDINAL_POSITION
@@ -72,13 +89,15 @@ public class JdbcDorisMetadataClient
     public List<String> listSchemaNames()
     {
         try (Connection connection = connectionFactory.openConnection();
-                PreparedStatement statement = connection.prepareStatement(LIST_SCHEMAS_SQL);
+                PreparedStatement statement = connection.prepareStatement(LIST_SCHEMAS_SQL.formatted(READABLE_TABLES_PREDICATE));
                 ResultSet resultSet = statement.executeQuery()) {
             List<String> schemas = new ArrayList<>();
             while (resultSet.next()) {
-                schemas.add(resultSet.getString("SCHEMA_NAME"));
+                schemas.add(resultSet.getString("TABLE_SCHEMA").toLowerCase(ENGLISH));
             }
-            return List.copyOf(schemas);
+            return schemas.stream()
+                    .distinct()
+                    .toList();
         }
         catch (SQLException e) {
             throw DorisJdbcConnectionFactory.jdbcOperationFailed("Failed to list Doris schemas", e);
@@ -89,7 +108,9 @@ public class JdbcDorisMetadataClient
     public List<SchemaTableName> listTables(Optional<String> schemaName)
     {
         try (Connection connection = connectionFactory.openConnection();
-                PreparedStatement statement = connection.prepareStatement(schemaName.isPresent() ? LIST_TABLES_IN_SCHEMA_SQL : LIST_ALL_TABLES_SQL)) {
+                PreparedStatement statement = connection.prepareStatement(schemaName.isPresent()
+                        ? LIST_TABLES_IN_SCHEMA_SQL.formatted(READABLE_TABLES_PREDICATE)
+                        : LIST_ALL_TABLES_SQL.formatted(READABLE_TABLES_PREDICATE))) {
             if (schemaName.isPresent()) {
                 statement.setString(1, schemaName.get());
             }
@@ -101,7 +122,9 @@ public class JdbcDorisMetadataClient
                             resultSet.getString("TABLE_SCHEMA"),
                             resultSet.getString("TABLE_NAME")));
                 }
-                return List.copyOf(tables);
+                return tables.stream()
+                        .distinct()
+                        .toList();
             }
         }
         catch (SQLException e) {
@@ -112,20 +135,35 @@ public class JdbcDorisMetadataClient
     @Override
     public Optional<DorisRemoteTable> getTable(SchemaTableName tableName)
     {
-        List<DorisRemoteColumn> columns = loadColumns(tableName);
+        Optional<ResolvedTable> resolvedTable = resolveTable(tableName);
+        if (resolvedTable.isEmpty()) {
+            return Optional.empty();
+        }
+
+        ResolvedTable remoteTable = resolvedTable.orElseThrow();
+        List<DorisRemoteColumn> columns = loadColumns(remoteTable.toSchemaTableName());
         if (columns.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(new DorisRemoteTable(tableName, columns));
+        return Optional.of(new DorisRemoteTable(
+                tableName,
+                remoteTable.schemaName(),
+                remoteTable.tableName(),
+                columns));
     }
 
     @Override
     public OptionalLong getTableRowCount(SchemaTableName tableName)
     {
+        Optional<ResolvedTable> resolvedTable = resolveTable(tableName);
+        if (resolvedTable.isEmpty()) {
+            return OptionalLong.empty();
+        }
+
         try (Connection connection = connectionFactory.openConnection();
                 PreparedStatement statement = connection.prepareStatement(TABLE_ROW_COUNT_SQL)) {
-            statement.setString(1, tableName.getSchemaName());
-            statement.setString(2, tableName.getTableName());
+            statement.setString(1, resolvedTable.orElseThrow().schemaName());
+            statement.setString(2, resolvedTable.orElseThrow().tableName());
 
             try (ResultSet resultSet = statement.executeQuery()) {
                 if (!resultSet.next()) {
@@ -144,6 +182,39 @@ public class JdbcDorisMetadataClient
         }
     }
 
+    private Optional<ResolvedTable> resolveTable(SchemaTableName tableName)
+    {
+        try (Connection connection = connectionFactory.openConnection();
+                PreparedStatement statement = connection.prepareStatement(RESOLVE_TABLE_SQL.formatted(READABLE_TABLES_PREDICATE))) {
+            statement.setString(1, tableName.getSchemaName());
+            statement.setString(2, tableName.getTableName());
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                List<ResolvedTable> matches = new ArrayList<>();
+                while (resultSet.next()) {
+                    matches.add(new ResolvedTable(
+                            resultSet.getString("TABLE_SCHEMA"),
+                            resultSet.getString("TABLE_NAME")));
+                }
+
+                if (matches.isEmpty()) {
+                    return Optional.empty();
+                }
+
+                ResolvedTable match = matches.getFirst();
+                if (matches.stream().skip(1).anyMatch(candidate -> !candidate.equals(match))) {
+                    throw new TrinoException(
+                            NOT_SUPPORTED,
+                            "Doris objects that differ only by case are not addressable in Trino: " + tableName);
+                }
+                return Optional.of(match);
+            }
+        }
+        catch (SQLException e) {
+            throw DorisJdbcConnectionFactory.jdbcOperationFailed("Failed to resolve Doris table '%s'".formatted(tableName), e);
+        }
+    }
+
     private List<DorisRemoteColumn> loadColumns(SchemaTableName tableName)
     {
         try (Connection connection = connectionFactory.openConnection();
@@ -159,7 +230,8 @@ public class JdbcDorisMetadataClient
                             resultSet.getString("DATA_TYPE"),
                             getOptionalInt(resultSet, "COLUMN_SIZE"),
                             getOptionalInt(resultSet, "DECIMAL_DIGITS"),
-                            resultSet.getInt("ORDINAL_POSITION")));
+                            resultSet.getInt("ORDINAL_POSITION"),
+                            Optional.ofNullable(resultSet.getString("COLUMN_TYPE"))));
                 }
                 return List.copyOf(columns);
             }
@@ -178,5 +250,12 @@ public class JdbcDorisMetadataClient
         }
         return Optional.of(value);
     }
-}
 
+    private record ResolvedTable(String schemaName, String tableName)
+    {
+        private SchemaTableName toSchemaTableName()
+        {
+            return new SchemaTableName(schemaName, tableName);
+        }
+    }
+}

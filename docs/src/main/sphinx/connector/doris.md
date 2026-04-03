@@ -129,7 +129,8 @@ connector is read-only.
   -
 * - `DATETIMEV2`
   - `TIMESTAMP(p)`
-  - Precision is capped at `6`.
+  - Precision is capped at `6`. The connector prefers Doris type definitions over
+    generic JDBC metadata so `DATETIMEV2(3)` remains `TIMESTAMP(3)`.
 * - `STRING`, `JSON`, `JSONB`, `ARRAY`, `MAP`, `STRUCT`, `VARIANT`, `IPV4`,
     `IPV6`, `BITMAP`, `HLL`, `QUANTILE_STATE`, `AGG_STATE`
   - `VARCHAR`
@@ -162,6 +163,12 @@ ORDER BY nationkey;
 If you used a different catalog properties filename, use that catalog name
 instead of `example`.
 
+The connector exposes Doris schemas and tables through Trino's lowercase
+identifier model. Mixed-case Doris names are resolved back to the remote Doris
+name during reads, so `SHOW SCHEMAS` and `SHOW TABLES` remain queryable from
+Trino. Objects that differ only by case are still not addressable separately
+because Trino normalizes identifiers to lowercase.
+
 ## SQL support
 
 The connector provides read access to Doris metadata and table data. In
@@ -169,6 +176,9 @@ addition to the [globally available](sql-globally-available) and
 [read operation](sql-read-operations) statements, the connector supports
 metadata inspection such as `SHOW SCHEMAS`, `SHOW TABLES`, `SHOW COLUMNS`, and
 `DESCRIBE`.
+
+Only readable Doris OLAP base tables are exposed. Internal system objects and
+non-OLAP tables are filtered from metadata listings.
 
 Write operations such as `INSERT`, `CREATE TABLE`, `DELETE`, `UPDATE`, and
 `MERGE` are not supported.
@@ -187,6 +197,8 @@ Trino's cost-based optimizer choose better plans.
 
 The connector supports pushdown for a number of operations:
 
+- projection
+- predicate filters on supported types
 - {ref}`limit-pushdown`
 - {ref}`topn-pushdown`
 

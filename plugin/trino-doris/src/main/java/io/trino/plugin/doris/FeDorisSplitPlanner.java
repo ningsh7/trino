@@ -72,8 +72,8 @@ public class FeDorisSplitPlanner
                     .sorted()
                     .toList();
             splits.add(new DorisSplit(
-                    tableHandle.schemaName(),
-                    tableHandle.tableName(),
+                    tableHandle.remoteSchemaName(),
+                    tableHandle.remoteTableName(),
                     entry.getKey(),
                     tabletIds,
                     Optional.ofNullable(queryPlan.opaquedQueryPlan())));
@@ -101,7 +101,7 @@ public class FeDorisSplitPlanner
     {
         List<String> failures = new ArrayList<>();
         for (String feEndpoint : getFeEndpoints()) {
-            URI uri = URI.create("http://" + feEndpoint + "/api/" + tableHandle.schemaName() + "/" + tableHandle.tableName() + "/_query_plan");
+            URI uri = URI.create("http://" + feEndpoint + "/api/" + tableHandle.remoteSchemaName() + "/" + tableHandle.remoteTableName() + "/_query_plan");
             HttpRequest request = HttpRequest.newBuilder(uri)
                     .header("Authorization", basicAuthHeader())
                     .header("Content-Type", "application/json; charset=UTF-8")
@@ -132,9 +132,22 @@ public class FeDorisSplitPlanner
     {
         JsonNode root = objectMapper.readTree(responseBody);
         JsonNode queryPlanNode = root.has("code") && root.has("data") ? root.get("data") : root;
+        if (queryPlanNode == null || queryPlanNode.isNull()) {
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, "Doris FE query plan response does not contain query plan data");
+        }
+        if (queryPlanNode.isTextual()) {
+            String message = queryPlanNode.asText();
+            if (root.hasNonNull("msg") && !root.get("msg").asText().isBlank()) {
+                message = root.get("msg").asText() + ": " + message;
+            }
+            throw new TrinoException(GENERIC_INTERNAL_ERROR, "Doris FE query plan request failed: " + message);
+        }
         DorisQueryPlanResponse queryPlan = objectMapper.treeToValue(queryPlanNode, DorisQueryPlanResponse.class);
         if (queryPlan.status() != 200) {
-            throw new TrinoException(GENERIC_INTERNAL_ERROR, "Doris FE query plan status is not OK: " + queryPlan.status());
+            String message = root.hasNonNull("msg") ? root.get("msg").asText() : "";
+            throw new TrinoException(
+                    GENERIC_INTERNAL_ERROR,
+                    "Doris FE query plan status is not OK: " + queryPlan.status() + (message.isBlank() ? "" : " (" + message + ")"));
         }
         return queryPlan;
     }

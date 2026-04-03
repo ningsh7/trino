@@ -97,7 +97,11 @@ public class DorisMetadata
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support versioned tables");
         }
         return metadataClient.getTable(tableName)
-                .map(ignored -> new DorisTableHandle(tableName.getSchemaName(), tableName.getTableName()))
+                .map(remoteTable -> new DorisTableHandle(
+                        tableName.getSchemaName(),
+                        tableName.getTableName(),
+                        remoteTable.remoteSchemaName(),
+                        remoteTable.remoteTableName()))
                 .orElse(null);
     }
 

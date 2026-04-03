@@ -13,13 +13,17 @@
  */
 package io.trino.plugin.doris;
 
+import io.trino.spi.TrinoException;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 final class TestFeDorisSplitPlanner
 {
@@ -55,5 +59,36 @@ final class TestFeDorisSplitPlanner
                 .isEqualTo(List.of(
                         new DorisSplit("sales", "orders", "be-1:9060", List.of(5L), Optional.of("opaque-plan")),
                         new DorisSplit("sales", "orders", "be-2:9060", List.of(6L, 7L), Optional.of("opaque-plan"))));
+    }
+
+    @Test
+    void testParseQueryPlanRejectsTextualFeErrors()
+            throws Exception
+    {
+        FeDorisSplitPlanner planner = new FeDorisSplitPlanner(new DorisConfig(), new DorisQueryBuilder());
+        Method parseQueryPlan = FeDorisSplitPlanner.class.getDeclaredMethod("parseQueryPlan", String.class);
+        parseQueryPlan.setAccessible(true);
+
+        assertThatThrownBy(() -> invokeParseQueryPlan(parseQueryPlan, planner, """
+                {
+                  "code": 1,
+                  "msg": "planner failed",
+                  "data": "errCode = 7, detailMessage = table type is not OLAP"
+                }
+                """))
+                .isInstanceOf(TrinoException.class)
+                .hasMessageContaining("planner failed")
+                .hasMessageContaining("table type is not OLAP");
+    }
+
+    private static void invokeParseQueryPlan(Method method, FeDorisSplitPlanner planner, String responseBody)
+            throws Throwable
+    {
+        try {
+            method.invoke(planner, responseBody);
+        }
+        catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
     }
 }

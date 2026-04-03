@@ -66,9 +66,9 @@ public class DorisQueryBuilder
                 .append("SELECT ")
                 .append(projection)
                 .append(" FROM ")
-                .append(quoteIdentifier(tableHandle.schemaName()))
+                .append(quoteIdentifier(tableHandle.remoteSchemaName()))
                 .append(".")
-                .append(quoteIdentifier(tableHandle.tableName()));
+                .append(quoteIdentifier(tableHandle.remoteTableName()));
 
         if (tableHandle.aggregations().isEmpty() && !tabletIds.isEmpty()) {
             sql.append(" TABLET(");
@@ -111,9 +111,9 @@ public class DorisQueryBuilder
         requireNonNull(tableHandle, "tableHandle is null");
         StringBuilder sql = new StringBuilder()
                 .append("SELECT * FROM ")
-                .append(quoteIdentifier(tableHandle.schemaName()))
+                .append(quoteIdentifier(tableHandle.remoteSchemaName()))
                 .append(".")
-                .append(quoteIdentifier(tableHandle.tableName()));
+                .append(quoteIdentifier(tableHandle.remoteTableName()));
 
         filterToSql.toFilter(tableHandle.constraint())
                 .filter(value -> !value.isBlank())

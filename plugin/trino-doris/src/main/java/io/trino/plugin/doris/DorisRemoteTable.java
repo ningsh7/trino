@@ -20,11 +20,22 @@ import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-public record DorisRemoteTable(SchemaTableName schemaTableName, List<DorisRemoteColumn> columns)
+public record DorisRemoteTable(
+        SchemaTableName schemaTableName,
+        String remoteSchemaName,
+        String remoteTableName,
+        List<DorisRemoteColumn> columns)
 {
+    public DorisRemoteTable(SchemaTableName schemaTableName, List<DorisRemoteColumn> columns)
+    {
+        this(schemaTableName, schemaTableName.getSchemaName(), schemaTableName.getTableName(), columns);
+    }
+
     public DorisRemoteTable
     {
         requireNonNull(schemaTableName, "schemaTableName is null");
+        requireNonNull(remoteSchemaName, "remoteSchemaName is null");
+        requireNonNull(remoteTableName, "remoteTableName is null");
         requireNonNull(columns, "columns is null");
 
         // Doris information_schema ordinals are 1-based. Sorting once keeps downstream handle creation deterministic.

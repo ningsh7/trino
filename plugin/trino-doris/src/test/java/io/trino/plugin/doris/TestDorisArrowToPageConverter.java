@@ -29,6 +29,7 @@ import org.apache.arrow.vector.FixedSizeBinaryVector;
 import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.SmallIntVector;
 import org.apache.arrow.vector.TimeStampMicroVector;
+import org.apache.arrow.vector.TimeStampMicroTZVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -38,6 +39,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -251,6 +253,31 @@ final class TestDorisArrowToPageConverter
             assertThat(DATE.getLong(page.getBlock(0), 0)).isEqualTo(LocalDate.of(2024, 3, 20).toEpochDay());
             assertThat(createTimestampType(6).getObjectValue(page.getBlock(1), 0).toString()).isEqualTo("2024-07-25 10:02:23.500000");
             assertThat(createUnboundedVarcharType().getObjectValue(page.getBlock(2), 0)).isEqualTo("1234567890123456789012345678901234567890.123456");
+        }
+    }
+
+    @Test
+    void testConvertTimestampTimezoneVectorPreservesLocalTime()
+    {
+        TimestampType timestamp = createTimestampType(6);
+        List<DorisColumnHandle> columns = List.of(new DorisColumnHandle("created_at", timestamp, 0));
+        LocalDateTime localTimestamp = LocalDateTime.of(2024, 7, 25, 10, 2, 23, 586_123_000);
+        long instantMicros = localTimestamp.atZone(ZoneId.of("Asia/Shanghai")).toInstant().getEpochSecond() * 1_000_000
+                + (localTimestamp.getNano() / 1_000);
+
+        try (RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+                TimeStampMicroTZVector createdAt = new TimeStampMicroTZVector("created_at", allocator, "Asia/Shanghai");
+                VectorSchemaRoot root = new VectorSchemaRoot(List.of(createdAt))) {
+            createdAt.setInitialCapacity(1);
+            createdAt.allocateNew();
+            createdAt.setSafe(0, instantMicros);
+            createdAt.setValueCount(1);
+
+            root.setRowCount(1);
+
+            Page page = convert(columns, root);
+
+            assertThat(timestamp.getObjectValue(page.getBlock(0), 0).toString()).isEqualTo("2024-07-25 10:02:23.586123");
         }
     }
 

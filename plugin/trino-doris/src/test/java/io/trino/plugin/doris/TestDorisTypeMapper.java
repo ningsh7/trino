@@ -59,6 +59,17 @@ final class TestDorisTypeMapper
     }
 
     @Test
+    void testUsesTypeDefinitionWhenDriverDataTypeIsGeneric()
+    {
+        DorisTypeMapper mapper = new DorisTypeMapper(new DorisConfig());
+
+        assertThat(mapper.toTrinoType(column("large_id", "decimal", null, null, 1, "largeint"))).isEqualTo(createUnboundedVarcharType());
+        assertThat(mapper.toTrinoType(column("created_at", "datetime", null, null, 2, "datetimev2(3)"))).isEqualTo(createTimestampType(3));
+        assertThat(mapper.toTrinoType(column("created_at", "datetime", null, null, 3, "datetime(3)"))).isEqualTo(createTimestampType(3));
+        assertThat(mapper.toTrinoType(column("amount", "decimal", null, null, 4, "decimal(18, 4)"))).isEqualTo(createDecimalType(18, 4));
+    }
+
+    @Test
     void testCharacterTemporalAndFallbackMappings()
     {
         DorisTypeMapper mapper = new DorisTypeMapper(new DorisConfig());
@@ -82,11 +93,17 @@ final class TestDorisTypeMapper
 
     private static DorisRemoteColumn column(String name, String type, Integer size, Integer scale, int ordinalPosition)
     {
+        return column(name, type, size, scale, ordinalPosition, null);
+    }
+
+    private static DorisRemoteColumn column(String name, String type, Integer size, Integer scale, int ordinalPosition, String typeDefinition)
+    {
         return new DorisRemoteColumn(
                 name,
                 type,
                 Optional.ofNullable(size),
                 Optional.ofNullable(scale),
-                ordinalPosition);
+                ordinalPosition,
+                Optional.ofNullable(typeDefinition));
     }
 }

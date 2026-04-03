@@ -22,13 +22,20 @@ public record DorisRemoteColumn(
         String dataType,
         Optional<Integer> columnSize,
         Optional<Integer> decimalDigits,
-        int ordinalPosition)
+        int ordinalPosition,
+        Optional<String> typeDefinition)
 {
+    public DorisRemoteColumn(String columnName, String dataType, Optional<Integer> columnSize, Optional<Integer> decimalDigits, int ordinalPosition)
+    {
+        this(columnName, dataType, columnSize, decimalDigits, ordinalPosition, Optional.empty());
+    }
+
     public DorisRemoteColumn
     {
         requireNonNull(columnName, "columnName is null");
         requireNonNull(dataType, "dataType is null");
         columnSize = requireNonNull(columnSize, "columnSize is null");
         decimalDigits = requireNonNull(decimalDigits, "decimalDigits is null");
+        typeDefinition = requireNonNull(typeDefinition, "typeDefinition is null");
     }
 }
