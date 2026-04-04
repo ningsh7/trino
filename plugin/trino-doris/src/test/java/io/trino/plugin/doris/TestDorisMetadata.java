@@ -323,6 +323,104 @@ final class TestDorisMetadata
     }
 
     @Test
+    void testApplyGroupingOnlyAggregationPushdown()
+    {
+        DorisTableHandle tableHandle = new DorisTableHandle("sales", "orders");
+        Map<String, ColumnHandle> columns = metadata.getColumnHandles(SESSION, tableHandle);
+        DorisColumnHandle id = (DorisColumnHandle) columns.get("id");
+
+        AggregationApplicationResult<ConnectorTableHandle> result = metadata.applyAggregation(
+                SESSION,
+                tableHandle,
+                List.of(),
+                Map.of("id", id),
+                List.of(List.of(id))).orElseThrow();
+
+        DorisTableHandle updatedHandle = (DorisTableHandle) result.getHandle();
+        assertThat(updatedHandle.groupingColumns().orElseThrow()).containsExactly(id);
+        assertThat(updatedHandle.aggregations()).isPresent();
+        assertThat(updatedHandle.aggregations().orElseThrow()).isEmpty();
+        assertThat(result.getAssignments()).isEmpty();
+        assertThat(result.getProjections()).isEmpty();
+        assertThat(result.getGroupingColumnMapping()).isEqualTo(Map.of(id, id));
+    }
+
+    @Test
+    void testCollapseCountDistinctFromGroupingOnlyPushdown()
+    {
+        DorisTableHandle tableHandle = new DorisTableHandle("sales", "orders");
+        Map<String, ColumnHandle> columns = metadata.getColumnHandles(SESSION, tableHandle);
+        DorisColumnHandle id = (DorisColumnHandle) columns.get("id");
+
+        DorisTableHandle groupedHandle = (DorisTableHandle) metadata.applyAggregation(
+                SESSION,
+                tableHandle,
+                List.of(),
+                Map.of("id", id),
+                List.of(List.of(id))).orElseThrow().getHandle();
+
+        AggregateFunction aggregate = new AggregateFunction(
+                "count",
+                BIGINT,
+                List.of(new Variable("id", BIGINT)),
+                List.of(),
+                false,
+                Optional.empty());
+
+        AggregationApplicationResult<ConnectorTableHandle> result = metadata.applyAggregation(
+                SESSION,
+                groupedHandle,
+                List.of(aggregate),
+                Map.of("id", id),
+                List.of(List.of())).orElseThrow();
+
+        DorisTableHandle updatedHandle = (DorisTableHandle) result.getHandle();
+        assertThat(updatedHandle.groupingColumns().orElseThrow()).isEmpty();
+        assertThat(updatedHandle.aggregations().orElseThrow().stream()
+                .map(DorisAggregation::expression)
+                .toList())
+                .containsExactly("COUNT(DISTINCT `id`)");
+    }
+
+    @Test
+    void testCollapseGroupedCountDistinctFromGroupingOnlyPushdown()
+    {
+        DorisTableHandle tableHandle = new DorisTableHandle("sales", "orders");
+        Map<String, ColumnHandle> columns = metadata.getColumnHandles(SESSION, tableHandle);
+        DorisColumnHandle id = (DorisColumnHandle) columns.get("id");
+        DorisColumnHandle payload = (DorisColumnHandle) columns.get("payload");
+
+        DorisTableHandle groupedHandle = (DorisTableHandle) metadata.applyAggregation(
+                SESSION,
+                tableHandle,
+                List.of(),
+                Map.of("id", id, "payload", payload),
+                List.of(List.of(payload, id))).orElseThrow().getHandle();
+
+        AggregateFunction aggregate = new AggregateFunction(
+                "count",
+                BIGINT,
+                List.of(new Variable("id", BIGINT)),
+                List.of(),
+                false,
+                Optional.empty());
+
+        AggregationApplicationResult<ConnectorTableHandle> result = metadata.applyAggregation(
+                SESSION,
+                groupedHandle,
+                List.of(aggregate),
+                Map.of("id", id, "payload", payload),
+                List.of(List.of(payload))).orElseThrow();
+
+        DorisTableHandle updatedHandle = (DorisTableHandle) result.getHandle();
+        assertThat(updatedHandle.groupingColumns().orElseThrow()).containsExactly(payload);
+        assertThat(updatedHandle.aggregations().orElseThrow().stream()
+                .map(DorisAggregation::expression)
+                .toList())
+                .containsExactly("COUNT(DISTINCT `id`)");
+    }
+
+    @Test
     void testApplyCountDistinctRejectsFloatingPointType()
     {
         AggregateFunction aggregate = new AggregateFunction(

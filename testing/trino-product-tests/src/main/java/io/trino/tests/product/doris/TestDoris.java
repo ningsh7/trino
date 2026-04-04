@@ -106,4 +106,153 @@ public class TestDoris
             onDoris().executeQuery("DROP TABLE IF EXISTS test.type_mapping");
         }
     }
+
+    @Test(groups = {DORIS, PROFILE_SPECIFIC_TESTS})
+    public void testVisibleEmptySchemasExcludeInternalSchemas()
+    {
+        onDoris().executeQuery("CREATE DATABASE IF NOT EXISTS empty_schema_visibility");
+
+        try {
+            assertEventually(METADATA_VISIBILITY_TIMEOUT, () -> {
+                assertThat(onTrino().executeQuery("SHOW SCHEMAS FROM doris").column(1))
+                        .contains("empty_schema_visibility")
+                        .doesNotContain("information_schema", "__internal_schema", "mysql");
+            });
+        }
+        finally {
+            onDoris().executeQuery("DROP DATABASE IF EXISTS empty_schema_visibility");
+        }
+    }
+
+    @Test(groups = {DORIS, PROFILE_SPECIFIC_TESTS})
+    public void testBooleanAndTimestampMappings()
+    {
+        onDoris().executeQuery("CREATE DATABASE IF NOT EXISTS test");
+        onDoris().executeQuery("DROP TABLE IF EXISTS test.type_mapping_extended");
+
+        try {
+            onDoris().executeQuery("""
+                    CREATE TABLE test.type_mapping_extended (
+                        id BIGINT,
+                        bool_col BOOLEAN,
+                        created_at DATETIME,
+                        created_at_millis DATETIMEV2(3),
+                        created_at_micros DATETIMEV2(6)
+                    )
+                    DUPLICATE KEY(id)
+                    DISTRIBUTED BY HASH(id) BUCKETS 1
+                    PROPERTIES ("replication_num" = "1")
+                    """);
+            onDoris().executeQuery("""
+                    INSERT INTO test.type_mapping_extended VALUES
+                        (1, true, '2026-03-31 09:15:01', '2026-03-31 09:15:01.123', '2026-03-31 09:15:01.123456'),
+                        (2, false, '2026-03-31 10:20:11', '2026-03-31 10:20:11.456', '2026-03-31 10:20:11.456789'),
+                        (3, NULL, NULL, NULL, NULL)
+                    """);
+
+            assertEventually(METADATA_VISIBILITY_TIMEOUT, () -> {
+                assertThat(onTrino().executeQuery("SHOW COLUMNS FROM doris.test.type_mapping_extended"))
+                        .contains(row("id", "bigint", "", ""))
+                        .contains(row("bool_col", "boolean", "", ""))
+                        .contains(row("created_at", "timestamp(0)", "", ""))
+                        .contains(row("created_at_millis", "timestamp(3)", "", ""))
+                        .contains(row("created_at_micros", "timestamp(6)", "", ""));
+                assertThat(onTrino().executeQuery("""
+                        SELECT bool_col, CAST(created_at AS VARCHAR), CAST(created_at_millis AS VARCHAR), CAST(created_at_micros AS VARCHAR)
+                        FROM doris.test.type_mapping_extended
+                        ORDER BY id
+                        """))
+                        .containsOnly(
+                                row(true, "2026-03-31 09:15:01", "2026-03-31 09:15:01.123", "2026-03-31 09:15:01.123456"),
+                                row(false, "2026-03-31 10:20:11", "2026-03-31 10:20:11.456", "2026-03-31 10:20:11.456789"),
+                                row(null, null, null, null));
+            });
+        }
+        finally {
+            onDoris().executeQuery("DROP TABLE IF EXISTS test.type_mapping_extended");
+        }
+    }
+
+    @Test(groups = {DORIS, PROFILE_SPECIFIC_TESTS})
+    public void testMixedCaseTableIsReadableViaLowercaseAlias()
+    {
+        onDoris().executeQuery("CREATE DATABASE IF NOT EXISTS MixedCase_DB");
+        onDoris().executeQuery("DROP TABLE IF EXISTS MixedCase_DB.OrderEvents_Mix");
+
+        try {
+            onDoris().executeQuery("""
+                    CREATE TABLE MixedCase_DB.OrderEvents_Mix (
+                        event_id INT,
+                        event_name VARCHAR(32)
+                    )
+                    DUPLICATE KEY(event_id)
+                    DISTRIBUTED BY HASH(event_id) BUCKETS 1
+                    PROPERTIES ("replication_num" = "1")
+                    """);
+            onDoris().executeQuery("""
+                    INSERT INTO MixedCase_DB.OrderEvents_Mix VALUES
+                        (1, 'created'),
+                        (2, 'shipped')
+                    """);
+
+            assertEventually(METADATA_VISIBILITY_TIMEOUT, () -> {
+                assertThat(onTrino().executeQuery("SHOW SCHEMAS FROM doris"))
+                        .contains(row("mixedcase_db"));
+                assertThat(onTrino().executeQuery("SHOW TABLES FROM doris.mixedcase_db"))
+                        .contains(row("orderevents_mix"));
+                assertThat(onTrino().executeQuery("SELECT event_id, event_name FROM doris.mixedcase_db.orderevents_mix ORDER BY event_id"))
+                        .containsOnly(row(1, "created"), row(2, "shipped"));
+            });
+        }
+        finally {
+            onDoris().executeQuery("DROP TABLE IF EXISTS MixedCase_DB.OrderEvents_Mix");
+            onDoris().executeQuery("DROP DATABASE IF EXISTS MixedCase_DB");
+        }
+    }
+
+    @Test(groups = {DORIS, PROFILE_SPECIFIC_TESTS})
+    public void testCountDistinctAggregation()
+    {
+        onDoris().executeQuery("CREATE DATABASE IF NOT EXISTS test");
+        onDoris().executeQuery("DROP TABLE IF EXISTS test.distinct_metrics");
+
+        try {
+            onDoris().executeQuery("""
+                    CREATE TABLE test.distinct_metrics (
+                        region_code VARCHAR(16),
+                        buyer_key BIGINT
+                    )
+                    DUPLICATE KEY(region_code, buyer_key)
+                    DISTRIBUTED BY HASH(region_code) BUCKETS 1
+                    PROPERTIES ("replication_num" = "1")
+                    """);
+            onDoris().executeQuery("""
+                    INSERT INTO test.distinct_metrics VALUES
+                        ('NORTH', 1001),
+                        ('NORTH', 1001),
+                        ('NORTH', 1002),
+                        ('SOUTH', 1003),
+                        ('SOUTH', 1003),
+                        ('SOUTH', 1004),
+                        ('SOUTH', 1005)
+                    """);
+
+            assertEventually(METADATA_VISIBILITY_TIMEOUT, () -> {
+                assertThat(onTrino().executeQuery("SELECT COUNT(DISTINCT buyer_key) FROM doris.test.distinct_metrics"))
+                        .containsOnly(row(5));
+                assertThat(onTrino().executeQuery("""
+                        SELECT region_code, COUNT(DISTINCT buyer_key)
+                        FROM doris.test.distinct_metrics
+                        GROUP BY region_code
+                        ORDER BY region_code
+                        """))
+                        .containsOnly(
+                                row("NORTH", 2),
+                                row("SOUTH", 3));
+            });
+        }
+        finally {
+            onDoris().executeQuery("DROP TABLE IF EXISTS test.distinct_metrics");
+        }
+    }
 }

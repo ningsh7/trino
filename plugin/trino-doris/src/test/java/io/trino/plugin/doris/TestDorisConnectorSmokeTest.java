@@ -141,6 +141,41 @@ final class TestDorisConnectorSmokeTest
     }
 
     @Test
+    void testSingleCountDistinctAggregationPushdownWiring()
+    {
+        environment.clearLastRequest();
+
+        assertQuery("SELECT count(DISTINCT regionkey) FROM nation", "VALUES 5");
+
+        TestingDorisEnvironment.Request request = environment.getLastRequest().orElseThrow();
+        assertThat(request.tableHandle().groupingColumns().orElse(List.of())).isEmpty();
+        assertThat(request.tableHandle().aggregations().orElseThrow().stream()
+                .map(DorisAggregation::expression)
+                .toList())
+                .containsExactly("COUNT(DISTINCT `regionkey`)");
+    }
+
+    @Test
+    void testGroupedSingleCountDistinctAggregationPushdownWiring()
+    {
+        environment.clearLastRequest();
+
+        assertQuery(
+                "SELECT regionkey, count(DISTINCT nationkey) FROM nation GROUP BY regionkey ORDER BY regionkey",
+                "VALUES (0, 5), (1, 5), (2, 5), (3, 5), (4, 5)");
+
+        TestingDorisEnvironment.Request request = environment.getLastRequest().orElseThrow();
+        assertThat(request.tableHandle().groupingColumns().orElseThrow().stream()
+                .map(DorisColumnHandle::columnName)
+                .toList())
+                .containsExactly("regionkey");
+        assertThat(request.tableHandle().aggregations().orElseThrow().stream()
+                .map(DorisAggregation::expression)
+                .toList())
+                .containsExactly("COUNT(DISTINCT `nationkey`)");
+    }
+
+    @Test
     void testGroupedCountDistinctAndSumPushdownWiring()
     {
         environment.clearLastRequest();

@@ -294,12 +294,12 @@ public class DorisMetadata
             throw new IllegalArgumentException("No grouping sets provided");
         }
 
-        if (groupingSets.size() != 1 || aggregates.isEmpty()) {
+        if (groupingSets.size() != 1) {
             return Optional.empty();
         }
 
         DorisTableHandle handle = (DorisTableHandle) table;
-        if (handle.aggregations().isPresent() || handle.limit().isPresent() || handle.constraint().isNone()) {
+        if (handle.limit().isPresent() || handle.constraint().isNone()) {
             return Optional.empty();
         }
 
@@ -308,13 +308,28 @@ public class DorisMetadata
                 .map(DorisColumnHandle.class::cast)
                 .toList();
 
+        if (handle.aggregations().isPresent() && !handle.aggregations().orElseThrow().isEmpty()) {
+            return Optional.empty();
+        }
+
         List<DorisAggregation> pushedAggregations = new ArrayList<>(aggregates.size());
-        for (int index = 0; index < aggregates.size(); index++) {
-            Optional<DorisAggregation> pushedAggregation = toAggregation(aggregates.get(index), assignments, index);
-            if (pushedAggregation.isEmpty()) {
-                return Optional.empty();
+        if (handle.aggregations().isPresent()) {
+            for (int index = 0; index < aggregates.size(); index++) {
+                Optional<DorisAggregation> pushedAggregation = rewriteAggregationOverGroupedRows(handle, groupingColumns, aggregates.get(index), assignments, index);
+                if (pushedAggregation.isEmpty()) {
+                    return Optional.empty();
+                }
+                pushedAggregations.add(pushedAggregation.orElseThrow());
             }
-            pushedAggregations.add(pushedAggregation.orElseThrow());
+        }
+        else {
+            for (int index = 0; index < aggregates.size(); index++) {
+                Optional<DorisAggregation> pushedAggregation = toAggregation(aggregates.get(index), assignments, index);
+                if (pushedAggregation.isEmpty()) {
+                    return Optional.empty();
+                }
+                pushedAggregations.add(pushedAggregation.orElseThrow());
+            }
         }
 
         DorisTableHandle updatedHandle = handle.withAggregations(groupingColumns, pushedAggregations);
@@ -585,6 +600,46 @@ public class DorisMetadata
             return Optional.empty();
         }
         return Optional.of(dorisColumn);
+    }
+
+    private static Optional<DorisAggregation> rewriteAggregationOverGroupedRows(
+            DorisTableHandle handle,
+            List<DorisColumnHandle> groupingColumns,
+            AggregateFunction aggregate,
+            Map<String, ColumnHandle> assignments,
+            int ordinalPosition)
+    {
+        List<DorisColumnHandle> sourceGroupingColumns = handle.groupingColumns().orElseThrow();
+        if (!sourceGroupingColumns.containsAll(groupingColumns)) {
+            return Optional.empty();
+        }
+
+        if (aggregate.getFilter().isPresent() || !aggregate.getSortItems().isEmpty() || aggregate.isDistinct()) {
+            return Optional.empty();
+        }
+        if (!aggregate.getFunctionName().equalsIgnoreCase("count") || !aggregate.getOutputType().equals(BIGINT)) {
+            return Optional.empty();
+        }
+        if (aggregate.getArguments().size() != 1) {
+            return Optional.empty();
+        }
+
+        Optional<DorisColumnHandle> sourceColumn = toSourceColumn(aggregate.getArguments().getFirst(), assignments);
+        if (sourceColumn.isEmpty()) {
+            return Optional.empty();
+        }
+
+        DorisColumnHandle dorisColumn = sourceColumn.orElseThrow();
+        if (!sourceGroupingColumns.contains(dorisColumn) || !isCountDistinctPushdownSupported(dorisColumn.columnType())) {
+            return Optional.empty();
+        }
+
+        return Optional.of(new DorisAggregation(
+                "_trino_agg_" + ordinalPosition,
+                "count_distinct",
+                "COUNT(DISTINCT " + DorisQueryBuilder.quoteIdentifier(dorisColumn.columnName()) + ")",
+                BIGINT,
+                Optional.of(dorisColumn.columnName())));
     }
 
     private static boolean isCharacterType(Type type)

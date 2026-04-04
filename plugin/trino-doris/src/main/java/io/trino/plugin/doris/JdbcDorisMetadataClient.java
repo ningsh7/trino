@@ -33,16 +33,19 @@ import static java.util.Objects.requireNonNull;
 public class JdbcDorisMetadataClient
         implements DorisMetadataClient
 {
+    private static final String VISIBLE_SCHEMAS_PREDICATE = """
+            LOWER(SCHEMA_NAME) NOT IN ('information_schema', '__internal_schema', 'mysql')
+            """;
     private static final String READABLE_TABLES_PREDICATE = """
             LOWER(TABLE_SCHEMA) NOT IN ('information_schema', '__internal_schema', 'mysql')
                 AND TABLE_TYPE = 'BASE TABLE'
                 AND UPPER(COALESCE(ENGINE, '')) IN ('OLAP', 'DORIS')
             """;
     private static final String LIST_SCHEMAS_SQL = """
-            SELECT DISTINCT TABLE_SCHEMA
-            FROM INFORMATION_SCHEMA.TABLES
+            SELECT SCHEMA_NAME
+            FROM INFORMATION_SCHEMA.SCHEMATA
             WHERE %s
-            ORDER BY TABLE_SCHEMA
+            ORDER BY SCHEMA_NAME
             """;
     private static final String LIST_ALL_TABLES_SQL = """
             SELECT TABLE_SCHEMA, TABLE_NAME
@@ -68,13 +71,13 @@ public class JdbcDorisMetadataClient
     private static final String LIST_COLUMNS_SQL = """
             SELECT COLUMN_NAME, DATA_TYPE, COLUMN_SIZE, DECIMAL_DIGITS, ORDINAL_POSITION, COLUMN_TYPE
             FROM INFORMATION_SCHEMA.COLUMNS
-            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+            WHERE LOWER(TABLE_SCHEMA) = LOWER(?) AND LOWER(TABLE_NAME) = LOWER(?)
             ORDER BY ORDINAL_POSITION
             """;
     private static final String TABLE_ROW_COUNT_SQL = """
             SELECT TABLE_ROWS
             FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+            WHERE LOWER(TABLE_SCHEMA) = LOWER(?) AND LOWER(TABLE_NAME) = LOWER(?)
             """;
 
     private final DorisJdbcConnectionFactory connectionFactory;
@@ -89,11 +92,11 @@ public class JdbcDorisMetadataClient
     public List<String> listSchemaNames()
     {
         try (Connection connection = connectionFactory.openConnection();
-                PreparedStatement statement = connection.prepareStatement(LIST_SCHEMAS_SQL.formatted(READABLE_TABLES_PREDICATE));
+                PreparedStatement statement = connection.prepareStatement(LIST_SCHEMAS_SQL.formatted(VISIBLE_SCHEMAS_PREDICATE));
                 ResultSet resultSet = statement.executeQuery()) {
             List<String> schemas = new ArrayList<>();
             while (resultSet.next()) {
-                schemas.add(resultSet.getString("TABLE_SCHEMA").toLowerCase(ENGLISH));
+                schemas.add(resultSet.getString("SCHEMA_NAME").toLowerCase(ENGLISH));
             }
             return schemas.stream()
                     .distinct()

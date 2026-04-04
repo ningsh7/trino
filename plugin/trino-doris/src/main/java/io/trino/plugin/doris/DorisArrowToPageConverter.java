@@ -223,6 +223,9 @@ public class DorisArrowToPageConverter
 
     private static long readTinyint(FieldVector vector, int index)
     {
+        if (vector instanceof BitVector bitVector) {
+            return bitVector.get(index);
+        }
         if (vector instanceof TinyIntVector tinyIntVector) {
             return tinyIntVector.get(index);
         }
@@ -231,6 +234,9 @@ public class DorisArrowToPageConverter
 
     private static long readSmallint(FieldVector vector, int index)
     {
+        if (vector instanceof BitVector bitVector) {
+            return bitVector.get(index);
+        }
         if (vector instanceof SmallIntVector smallIntVector) {
             return smallIntVector.get(index);
         }
@@ -242,6 +248,9 @@ public class DorisArrowToPageConverter
 
     private static long readInteger(FieldVector vector, int index)
     {
+        if (vector instanceof BitVector bitVector) {
+            return bitVector.get(index);
+        }
         if (vector instanceof IntVector intVector) {
             return intVector.get(index);
         }
@@ -256,6 +265,9 @@ public class DorisArrowToPageConverter
 
     private static long readBigint(FieldVector vector, int index)
     {
+        if (vector instanceof BitVector bitVector) {
+            return bitVector.get(index);
+        }
         if (vector instanceof BigIntVector bigIntVector) {
             return bigIntVector.get(index);
         }
@@ -319,7 +331,11 @@ public class DorisArrowToPageConverter
     {
         long rawValue = timestampVector.get(index);
         long normalizedValue = normalizeDorisTimestamp(rawValue);
+        String timeZone = arrowTimestampTimeZone(timestampVector);
         if (normalizedValue != rawValue) {
+            if (timeZone != null && !timeZone.isBlank()) {
+                return toTrinoTimestampMicros(timestampMicrosToLocalDateTime(normalizedValue, timeZone));
+            }
             return normalizedValue;
         }
 
@@ -330,11 +346,8 @@ public class DorisArrowToPageConverter
         if (timestampValue instanceof java.time.OffsetDateTime offsetDateTime) {
             return toTrinoTimestampMicros(offsetDateTime.toLocalDateTime());
         }
-        if (timestampValue instanceof Long) {
-            String timeZone = arrowTimestampTimeZone(timestampVector);
-            if (timeZone != null && !timeZone.isBlank()) {
-                return toTrinoTimestampMicros(timestampMicrosToLocalDateTime(normalizedValue, timeZone));
-            }
+        if (timeZone != null && !timeZone.isBlank()) {
+            return toTrinoTimestampMicros(timestampMicrosToLocalDateTime(normalizedValue, timeZone));
         }
         return normalizedValue;
     }

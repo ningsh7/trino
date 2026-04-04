@@ -160,6 +160,19 @@ final class TestDorisQueryBuilder
     }
 
     @Test
+    void testBuildSelectSqlForGroupingOnlyPushdown()
+    {
+        DorisQueryBuilder queryBuilder = new DorisQueryBuilder();
+        DorisTableHandle tableHandle = new DorisTableHandle("sales", "orders")
+                .withAggregations(
+                        List.of(new DorisColumnHandle("payload", createUnboundedVarcharType(), 2)),
+                        List.of());
+
+        assertThat(queryBuilder.buildSelectSql(tableHandle, List.of("payload"), List.of(11L)))
+                .isEqualTo("SELECT `payload` AS `payload` FROM `sales`.`orders` GROUP BY `payload`");
+    }
+
+    @Test
     void testBuildSelectSqlForTopNPushdown()
     {
         DorisQueryBuilder queryBuilder = new DorisQueryBuilder();

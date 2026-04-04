@@ -25,6 +25,7 @@ import static io.trino.spi.type.DateType.DATE;
 import static io.trino.spi.type.DecimalType.createDecimalType;
 import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.TimestampType.createTimestampType;
+import static io.trino.spi.type.TinyintType.TINYINT;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
 import static io.trino.spi.type.VarcharType.createVarcharType;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -38,9 +39,12 @@ final class TestDorisTypeMapper
         DorisTypeMapper mapper = new DorisTypeMapper(new DorisConfig());
 
         assertThat(mapper.toTrinoType(column("is_active", "tinyint", 0, null, 1))).isEqualTo(BOOLEAN);
-        assertThat(mapper.toTrinoType(column("user_id", "int", 11, null, 2))).isEqualTo(INTEGER);
-        assertThat(mapper.toTrinoType(column("total", "bigint", 20, null, 3))).isEqualTo(BIGINT);
-        assertThat(mapper.toTrinoType(column("unsigned_id", "bigint unsigned", 20, 0, 4))).isEqualTo(createDecimalType(20));
+        assertThat(mapper.toTrinoType(column("is_enabled", "tinyint", 1, null, 2))).isEqualTo(BOOLEAN);
+        assertThat(mapper.toTrinoType(column("is_deleted", "tinyint", null, null, 3, "boolean"))).isEqualTo(BOOLEAN);
+        assertThat(mapper.toTrinoType(column("retry_count", "tinyint", null, null, 4))).isEqualTo(TINYINT);
+        assertThat(mapper.toTrinoType(column("user_id", "int", 11, null, 5))).isEqualTo(INTEGER);
+        assertThat(mapper.toTrinoType(column("total", "bigint", 20, null, 6))).isEqualTo(BIGINT);
+        assertThat(mapper.toTrinoType(column("unsigned_id", "bigint unsigned", 20, 0, 7))).isEqualTo(createDecimalType(20));
     }
 
     @Test

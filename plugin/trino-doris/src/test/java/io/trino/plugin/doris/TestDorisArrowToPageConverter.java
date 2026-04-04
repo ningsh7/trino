@@ -31,6 +31,8 @@ import org.apache.arrow.vector.SmallIntVector;
 import org.apache.arrow.vector.TimeStampMicroVector;
 import org.apache.arrow.vector.TimeStampMicroTZVector;
 import org.apache.arrow.vector.TinyIntVector;
+import org.apache.arrow.vector.TimeStampMilliTZVector;
+import org.apache.arrow.vector.TimeStampSecTZVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.api.Test;
@@ -137,6 +139,40 @@ final class TestDorisArrowToPageConverter
             assertThat(REAL.getFloat(page.getBlock(4), 0)).isEqualTo(1.5f);
             assertThat(createVarcharType(20).getObjectValue(page.getBlock(5), 0)).isEqualTo("alpha");
             assertThat(createCharType(3).getObjectValue(page.getBlock(6), 0)).isEqualTo("xy ");
+        }
+    }
+
+    @Test
+    void testConvertBitVectorForIntegralColumns()
+    {
+        List<DorisColumnHandle> columns = List.of(
+                new DorisColumnHandle("flag_as_tinyint", TINYINT, 0),
+                new DorisColumnHandle("flag_as_bigint", BIGINT, 1));
+
+        try (RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+                BitVector tinyintFlag = new BitVector("flag_as_tinyint", allocator);
+                BitVector bigintFlag = new BitVector("flag_as_bigint", allocator);
+                VectorSchemaRoot root = new VectorSchemaRoot(List.of(tinyintFlag, bigintFlag))) {
+            tinyintFlag.setInitialCapacity(2);
+            tinyintFlag.allocateNew();
+            tinyintFlag.setSafe(0, 1);
+            tinyintFlag.setNull(1);
+            tinyintFlag.setValueCount(2);
+
+            bigintFlag.setInitialCapacity(2);
+            bigintFlag.allocateNew();
+            bigintFlag.setSafe(0, 0);
+            bigintFlag.setNull(1);
+            bigintFlag.setValueCount(2);
+
+            root.setRowCount(2);
+
+            Page page = convert(columns, root);
+
+            assertThat(TINYINT.getLong(page.getBlock(0), 0)).isEqualTo(1L);
+            assertThat(BIGINT.getLong(page.getBlock(1), 0)).isEqualTo(0L);
+            assertThat(page.getBlock(0).isNull(1)).isTrue();
+            assertThat(page.getBlock(1).isNull(1)).isTrue();
         }
     }
 
@@ -278,6 +314,43 @@ final class TestDorisArrowToPageConverter
             Page page = convert(columns, root);
 
             assertThat(timestamp.getObjectValue(page.getBlock(0), 0).toString()).isEqualTo("2024-07-25 10:02:23.586123");
+        }
+    }
+
+    @Test
+    void testConvertSecondAndMillisecondTimezoneVectorsPreserveLocalTime()
+    {
+        TimestampType secondsTimestamp = createTimestampType(0);
+        TimestampType millisTimestamp = createTimestampType(3);
+        List<DorisColumnHandle> columns = List.of(
+                new DorisColumnHandle("created_at_seconds", secondsTimestamp, 0),
+                new DorisColumnHandle("created_at_millis", millisTimestamp, 1));
+
+        LocalDateTime secondsLocalTimestamp = LocalDateTime.of(2024, 7, 25, 10, 2, 23);
+        LocalDateTime millisLocalTimestamp = LocalDateTime.of(2024, 7, 25, 10, 2, 23, 586_000_000);
+        long secondsInstant = secondsLocalTimestamp.atZone(ZoneId.of("Asia/Shanghai")).toInstant().getEpochSecond();
+        long millisInstant = millisLocalTimestamp.atZone(ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();
+
+        try (RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+                TimeStampSecTZVector createdAtSeconds = new TimeStampSecTZVector("created_at_seconds", allocator, "Asia/Shanghai");
+                TimeStampMilliTZVector createdAtMillis = new TimeStampMilliTZVector("created_at_millis", allocator, "Asia/Shanghai");
+                VectorSchemaRoot root = new VectorSchemaRoot(List.of(createdAtSeconds, createdAtMillis))) {
+            createdAtSeconds.setInitialCapacity(1);
+            createdAtSeconds.allocateNew();
+            createdAtSeconds.setSafe(0, secondsInstant);
+            createdAtSeconds.setValueCount(1);
+
+            createdAtMillis.setInitialCapacity(1);
+            createdAtMillis.allocateNew();
+            createdAtMillis.setSafe(0, millisInstant);
+            createdAtMillis.setValueCount(1);
+
+            root.setRowCount(1);
+
+            Page page = convert(columns, root);
+
+            assertThat(secondsTimestamp.getObjectValue(page.getBlock(0), 0).toString()).isEqualTo("2024-07-25 10:02:23");
+            assertThat(millisTimestamp.getObjectValue(page.getBlock(1), 0).toString()).isEqualTo("2024-07-25 10:02:23.586");
         }
     }
 

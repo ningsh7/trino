@@ -88,7 +88,16 @@ public class DorisTypeMapper
 
     private static boolean isBooleanAlias(DorisRemoteColumn column)
     {
-        return column.columnSize().orElse(-1) == 0;
+        String typeDefinition = column.typeDefinition()
+                .map(value -> value.trim().toUpperCase(Locale.ENGLISH))
+                .orElse("");
+        return column.columnSize()
+                .filter(size -> size <= 1)
+                .isPresent() ||
+                typeDefinition.equals("BOOLEAN") ||
+                typeDefinition.equals("BOOL") ||
+                typeDefinition.startsWith("BOOLEAN(") ||
+                typeDefinition.startsWith("BOOL(");
     }
 
     private static Type toDecimalType(DorisRemoteColumn column)
