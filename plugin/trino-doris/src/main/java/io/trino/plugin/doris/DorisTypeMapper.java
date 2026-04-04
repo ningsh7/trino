@@ -94,6 +94,7 @@ public class DorisTypeMapper
         return column.columnSize()
                 .filter(size -> size <= 1)
                 .isPresent() ||
+                (column.columnSize().isEmpty() && typeDefinition.equals("TINYINT(1)")) ||
                 typeDefinition.equals("BOOLEAN") ||
                 typeDefinition.equals("BOOL") ||
                 typeDefinition.startsWith("BOOLEAN(") ||

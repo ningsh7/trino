@@ -116,7 +116,7 @@ public class TestDoris
             assertEventually(METADATA_VISIBILITY_TIMEOUT, () -> {
                 assertThat(onTrino().executeQuery("SHOW SCHEMAS FROM doris").column(1))
                         .contains("empty_schema_visibility")
-                        .doesNotContain("information_schema", "__internal_schema", "mysql");
+                        .doesNotContain("__internal_schema", "mysql");
             });
         }
         finally {

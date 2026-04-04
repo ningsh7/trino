@@ -41,10 +41,12 @@ final class TestDorisTypeMapper
         assertThat(mapper.toTrinoType(column("is_active", "tinyint", 0, null, 1))).isEqualTo(BOOLEAN);
         assertThat(mapper.toTrinoType(column("is_enabled", "tinyint", 1, null, 2))).isEqualTo(BOOLEAN);
         assertThat(mapper.toTrinoType(column("is_deleted", "tinyint", null, null, 3, "boolean"))).isEqualTo(BOOLEAN);
+        assertThat(mapper.toTrinoType(column("is_visible", "tinyint", null, null, 4, "tinyint(1)"))).isEqualTo(BOOLEAN);
         assertThat(mapper.toTrinoType(column("retry_count", "tinyint", null, null, 4))).isEqualTo(TINYINT);
-        assertThat(mapper.toTrinoType(column("user_id", "int", 11, null, 5))).isEqualTo(INTEGER);
-        assertThat(mapper.toTrinoType(column("total", "bigint", 20, null, 6))).isEqualTo(BIGINT);
-        assertThat(mapper.toTrinoType(column("unsigned_id", "bigint unsigned", 20, 0, 7))).isEqualTo(createDecimalType(20));
+        assertThat(mapper.toTrinoType(column("tiny1_user_defined", "tinyint", 3, null, 5, "tinyint(4)"))).isEqualTo(TINYINT);
+        assertThat(mapper.toTrinoType(column("user_id", "int", 11, null, 6))).isEqualTo(INTEGER);
+        assertThat(mapper.toTrinoType(column("total", "bigint", 20, null, 7))).isEqualTo(BIGINT);
+        assertThat(mapper.toTrinoType(column("unsigned_id", "bigint unsigned", 20, 0, 8))).isEqualTo(createDecimalType(20));
     }
 
     @Test
