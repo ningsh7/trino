@@ -41,6 +41,10 @@ public class FeDorisSplitPlanner
     private final DorisQueryBuilder queryBuilder;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private final String basicAuthHeader;
+
+    private volatile List<String> cachedFeEndpoints;
+    private volatile String preferredFeEndpoint;
 
     @Inject
     public FeDorisSplitPlanner(DorisConfig config, DorisQueryBuilder queryBuilder)
@@ -49,6 +53,7 @@ public class FeDorisSplitPlanner
         this.queryBuilder = requireNonNull(queryBuilder, "queryBuilder is null");
         this.httpClient = HttpClient.newHttpClient();
         this.objectMapper = new ObjectMapper();
+        this.basicAuthHeader = buildBasicAuthHeader(config);
     }
 
     @Override
@@ -100,10 +105,10 @@ public class FeDorisSplitPlanner
     private DorisQueryPlanResponse fetchQueryPlan(DorisTableHandle tableHandle, String sql)
     {
         List<String> failures = new ArrayList<>();
-        for (String feEndpoint : getFeEndpoints()) {
+        for (String feEndpoint : prioritizedFeEndpoints()) {
             URI uri = URI.create("http://" + feEndpoint + "/api/" + tableHandle.remoteSchemaName() + "/" + tableHandle.remoteTableName() + "/_query_plan");
             HttpRequest request = HttpRequest.newBuilder(uri)
-                    .header("Authorization", basicAuthHeader())
+                    .header("Authorization", basicAuthHeader)
                     .header("Content-Type", "application/json; charset=UTF-8")
                     .POST(HttpRequest.BodyPublishers.ofString(queryPlanRequestBody(sql), StandardCharsets.UTF_8))
                     .build();
@@ -114,6 +119,7 @@ public class FeDorisSplitPlanner
                     failures.add("%s -> HTTP %s".formatted(feEndpoint, response.statusCode()));
                     continue;
                 }
+                preferredFeEndpoint = feEndpoint;
                 return parseQueryPlan(response.body());
             }
             catch (IOException | InterruptedException e) {
@@ -125,6 +131,29 @@ public class FeDorisSplitPlanner
         }
 
         throw new TrinoException(GENERIC_INTERNAL_ERROR, "Failed to fetch Doris query plan from FE nodes: " + failures);
+    }
+
+    private List<String> prioritizedFeEndpoints()
+    {
+        List<String> endpoints = cachedFeEndpoints;
+        if (endpoints == null) {
+            endpoints = DorisFeEndpoints.getHttpEndpoints(config);
+            cachedFeEndpoints = endpoints;
+        }
+
+        String preferred = preferredFeEndpoint;
+        if (preferred == null || !endpoints.contains(preferred)) {
+            return endpoints;
+        }
+
+        List<String> prioritized = new ArrayList<>(endpoints.size());
+        prioritized.add(preferred);
+        for (String endpoint : endpoints) {
+            if (!endpoint.equals(preferred)) {
+                prioritized.add(endpoint);
+            }
+        }
+        return List.copyOf(prioritized);
     }
 
     private DorisQueryPlanResponse parseQueryPlan(String responseBody)
@@ -162,12 +191,7 @@ public class FeDorisSplitPlanner
         }
     }
 
-    private List<String> getFeEndpoints()
-    {
-        return DorisFeEndpoints.getHttpEndpoints(config);
-    }
-
-    private String basicAuthHeader()
+    private static String buildBasicAuthHeader(DorisConfig config)
     {
         String user = config.getUsername().orElse("");
         String password = config.getPassword().orElse("");

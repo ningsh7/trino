@@ -293,6 +293,30 @@ public class DorisArrowToPageConverter
         if (vector instanceof Float4Vector float4Vector) {
             return float4Vector.get(index);
         }
+        if (vector instanceof BitVector bitVector) {
+            return bitVector.get(index);
+        }
+        if (vector instanceof TinyIntVector tinyIntVector) {
+            return tinyIntVector.get(index);
+        }
+        if (vector instanceof SmallIntVector smallIntVector) {
+            return smallIntVector.get(index);
+        }
+        if (vector instanceof IntVector intVector) {
+            return intVector.get(index);
+        }
+        if (vector instanceof BigIntVector bigIntVector) {
+            return bigIntVector.get(index);
+        }
+        if (vector instanceof Decimal256Vector decimal256Vector) {
+            return decimal256Vector.getObject(index).doubleValue();
+        }
+        if (vector instanceof DecimalVector decimalVector) {
+            return decimalVector.getObject(index).doubleValue();
+        }
+        if (vector instanceof VarCharVector varCharVector) {
+            return Double.parseDouble(new String(varCharVector.get(index), StandardCharsets.UTF_8).trim());
+        }
         throw unsupportedVector(vector);
     }
 
@@ -395,8 +419,11 @@ public class DorisArrowToPageConverter
         if (vector instanceof TimeStampVector) {
             return SqlTimestamp.newInstance(6, readTimestampMicros(vector, index, 6), 0).toString();
         }
-        if (vector instanceof BitVector || vector instanceof TinyIntVector) {
+        if (vector instanceof BitVector) {
             return Boolean.toString(readBoolean(vector, index));
+        }
+        if (vector instanceof TinyIntVector tinyIntVector) {
+            return Byte.toString(tinyIntVector.get(index));
         }
         if (vector instanceof SmallIntVector) {
             return Short.toString((short) readSmallint(vector, index));

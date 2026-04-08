@@ -89,6 +89,21 @@ final class TestDorisTypeMapper
     }
 
     @Test
+    void testComplexTypesFailFastWithNormalizedTypeDefinitions()
+    {
+        DorisTypeMapper mapper = new DorisTypeMapper(new DorisConfig());
+
+        assertThatThrownBy(() -> mapper.toTrinoType(column("arr_int_col", "array", null, null, 1, "array<decimal(18,2)>")))
+                .isInstanceOf(TrinoException.class)
+                .hasMessageContaining("array<decimal(18,2)>")
+                .hasMessageContaining("arr_int_col");
+        assertThatThrownBy(() -> mapper.toTrinoType(column("struct_col", "struct", null, null, 2, "struct<city:varchar(32), score:int>")))
+                .isInstanceOf(TrinoException.class)
+                .hasMessageContaining("struct<city:varchar(32), score:int>")
+                .hasMessageContaining("struct_col");
+    }
+
+    @Test
     void testUnsupportedTypeFailsFast()
     {
         DorisTypeMapper mapper = new DorisTypeMapper(new DorisConfig());

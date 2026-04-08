@@ -27,12 +27,13 @@ import org.apache.arrow.vector.Decimal256Vector;
 import org.apache.arrow.vector.DecimalVector;
 import org.apache.arrow.vector.FixedSizeBinaryVector;
 import org.apache.arrow.vector.Float4Vector;
+import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.SmallIntVector;
-import org.apache.arrow.vector.TimeStampMicroVector;
 import org.apache.arrow.vector.TimeStampMicroTZVector;
-import org.apache.arrow.vector.TinyIntVector;
+import org.apache.arrow.vector.TimeStampMicroVector;
 import org.apache.arrow.vector.TimeStampMilliTZVector;
 import org.apache.arrow.vector.TimeStampSecTZVector;
+import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,7 @@ import static io.trino.spi.type.BooleanType.BOOLEAN;
 import static io.trino.spi.type.CharType.createCharType;
 import static io.trino.spi.type.DateType.DATE;
 import static io.trino.spi.type.DecimalType.createDecimalType;
+import static io.trino.spi.type.DoubleType.DOUBLE;
 import static io.trino.spi.type.RealType.REAL;
 import static io.trino.spi.type.SmallintType.SMALLINT;
 import static io.trino.spi.type.TimestampType.createTimestampType;
@@ -289,6 +291,60 @@ final class TestDorisArrowToPageConverter
             assertThat(DATE.getLong(page.getBlock(0), 0)).isEqualTo(LocalDate.of(2024, 3, 20).toEpochDay());
             assertThat(createTimestampType(6).getObjectValue(page.getBlock(1), 0).toString()).isEqualTo("2024-07-25 10:02:23.500000");
             assertThat(createUnboundedVarcharType().getObjectValue(page.getBlock(2), 0)).isEqualTo("1234567890123456789012345678901234567890.123456");
+        }
+    }
+
+    @Test
+    void testConvertDoubleColumnsFromIntegralDecimalAndTextVectors()
+    {
+        List<DorisColumnHandle> columns = List.of(
+                new DorisColumnHandle("avg_from_double", DOUBLE, 0),
+                new DorisColumnHandle("avg_from_bigint", DOUBLE, 1),
+                new DorisColumnHandle("avg_from_decimal", DOUBLE, 2),
+                new DorisColumnHandle("avg_from_text", DOUBLE, 3),
+                new DorisColumnHandle("tiny_as_text", createUnboundedVarcharType(), 4));
+
+        try (RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+                Float8Vector avgFromDouble = new Float8Vector("avg_from_double", allocator);
+                BigIntVector avgFromBigint = new BigIntVector("avg_from_bigint", allocator);
+                DecimalVector avgFromDecimal = new DecimalVector("avg_from_decimal", allocator, 18, 6);
+                VarCharVector avgFromText = new VarCharVector("avg_from_text", allocator);
+                TinyIntVector tinyAsText = new TinyIntVector("tiny_as_text", allocator);
+                VectorSchemaRoot root = new VectorSchemaRoot(List.of(avgFromDouble, avgFromBigint, avgFromDecimal, avgFromText, tinyAsText))) {
+            avgFromDouble.setInitialCapacity(1);
+            avgFromDouble.allocateNew();
+            avgFromDouble.setSafe(0, 12.5);
+            avgFromDouble.setValueCount(1);
+
+            avgFromBigint.setInitialCapacity(1);
+            avgFromBigint.allocateNew();
+            avgFromBigint.setSafe(0, 42L);
+            avgFromBigint.setValueCount(1);
+
+            avgFromDecimal.setInitialCapacity(1);
+            avgFromDecimal.allocateNew();
+            avgFromDecimal.setSafe(0, new BigDecimal("7.125000"));
+            avgFromDecimal.setValueCount(1);
+
+            avgFromText.setInitialCapacity(1);
+            avgFromText.allocateNew();
+            avgFromText.setSafe(0, " 3.75 ".getBytes(UTF_8));
+            avgFromText.setValueCount(1);
+
+            tinyAsText.setInitialCapacity(1);
+            tinyAsText.allocateNew();
+            tinyAsText.setSafe(0, 7);
+            tinyAsText.setValueCount(1);
+
+            root.setRowCount(1);
+
+            Page page = convert(columns, root);
+
+            assertThat(DOUBLE.getDouble(page.getBlock(0), 0)).isEqualTo(12.5);
+            assertThat(DOUBLE.getDouble(page.getBlock(1), 0)).isEqualTo(42.0);
+            assertThat(DOUBLE.getDouble(page.getBlock(2), 0)).isEqualTo(7.125);
+            assertThat(DOUBLE.getDouble(page.getBlock(3), 0)).isEqualTo(3.75);
+            assertThat(createUnboundedVarcharType().getObjectValue(page.getBlock(4), 0)).isEqualTo("7");
         }
     }
 

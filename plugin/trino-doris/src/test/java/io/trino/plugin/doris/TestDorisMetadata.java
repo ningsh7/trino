@@ -30,6 +30,7 @@ import io.trino.spi.connector.SortItem;
 import io.trino.spi.connector.SortOrder;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.connector.TopNApplicationResult;
+import io.trino.spi.expression.Call;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.Variable;
 import io.trino.spi.predicate.Domain;
@@ -44,9 +45,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static io.trino.spi.expression.StandardFunctions.CAST_FUNCTION_NAME;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.DecimalType.createDecimalType;
 import static io.trino.spi.type.DoubleType.DOUBLE;
+import static io.trino.spi.type.IntegerType.INTEGER;
 import static io.trino.spi.type.RealType.REAL;
 import static io.trino.spi.type.TimestampType.createTimestampType;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
@@ -484,6 +487,30 @@ final class TestDorisMetadata
                 .toList())
                 .containsExactly("_trino_agg_0", "_trino_agg_1");
         assertThat(result.getGroupingColumnMapping()).isEqualTo(Map.of(payload, payload));
+    }
+
+    @Test
+    void testApplyAvgAggregationPushdownWithWideningCast()
+    {
+        AggregateFunction avg = new AggregateFunction(
+                "avg",
+                DOUBLE,
+                List.of(new Call(BIGINT, CAST_FUNCTION_NAME, List.of(new Variable("quantity", INTEGER)))),
+                List.of(),
+                false,
+                Optional.empty());
+
+        AggregationApplicationResult<ConnectorTableHandle> result = metadata.applyAggregation(
+                SESSION,
+                new DorisTableHandle("sales", "orders"),
+                List.of(avg),
+                Map.of("quantity", new DorisColumnHandle("quantity", INTEGER, 4)),
+                List.of(List.of())).orElseThrow();
+
+        DorisAggregation pushedAggregation = ((DorisTableHandle) result.getHandle()).aggregations().orElseThrow().getFirst();
+        assertThat(pushedAggregation.expression()).isEqualTo("AVG((`quantity` * 1.0))");
+        assertThat(pushedAggregation.functionName()).isEqualTo("avg");
+        assertThat(pushedAggregation.sourceColumnName()).contains("quantity");
     }
 
     @Test

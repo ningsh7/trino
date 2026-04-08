@@ -42,6 +42,8 @@ public class AdbcDorisFlightSqlClient
     private final DorisConfig config;
     private final DorisQueryBuilder queryBuilder;
     private final DorisFlightSqlPortResolver portResolver;
+    private volatile List<String> cachedFeHosts;
+    private volatile String preferredFeHost;
 
     @Inject
     public AdbcDorisFlightSqlClient(DorisConfig config, DorisQueryBuilder queryBuilder, DorisFlightSqlPortResolver portResolver)
@@ -71,9 +73,11 @@ public class AdbcDorisFlightSqlClient
                 split.tabletIds());
 
         List<String> failures = new ArrayList<>();
-        for (String feHost : DorisFeEndpoints.getHosts(config)) {
+        for (String feHost : prioritizedFeHosts()) {
             try {
-                return openStream(feHost, flightSqlPort, sql);
+                DorisFlightSqlResult result = openStream(feHost, flightSqlPort, sql);
+                preferredFeHost = feHost;
+                return result;
             }
             catch (RuntimeException e) {
                 failures.add("%s:%s -> %s".formatted(feHost, flightSqlPort, e.getMessage()));
@@ -81,6 +85,29 @@ public class AdbcDorisFlightSqlClient
         }
 
         throw new TrinoException(GENERIC_INTERNAL_ERROR, "Failed to open Doris Flight SQL stream: " + failures);
+    }
+
+    private List<String> prioritizedFeHosts()
+    {
+        List<String> hosts = cachedFeHosts;
+        if (hosts == null) {
+            hosts = DorisFeEndpoints.getHosts(config);
+            cachedFeHosts = hosts;
+        }
+
+        String preferred = preferredFeHost;
+        if (preferred == null || !hosts.contains(preferred)) {
+            return hosts;
+        }
+
+        List<String> prioritized = new ArrayList<>(hosts.size());
+        prioritized.add(preferred);
+        for (String host : hosts) {
+            if (!host.equals(preferred)) {
+                prioritized.add(host);
+            }
+        }
+        return List.copyOf(prioritized);
     }
 
     private DorisFlightSqlResult openStream(String feHost, int flightSqlPort, String sql)

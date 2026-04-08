@@ -80,9 +80,9 @@ public class DorisTypeMapper
             // Doris can report DATETIMEV2 through JDBC metadata as datetime(p) in COLUMN_TYPE.
             case "DATETIME" -> createTimestampType(legacyTimestampPrecision(column));
             case "DATETIMEV2", "DATETIME_V2" -> createTimestampType(timestampPrecision(column));
-            // Complex and extra-wide Doris types stay VARCHAR until the Flight SQL reader can materialize them natively.
-            case "STRING", "JSON", "JSONB", "ARRAY", "MAP", "STRUCT", "VARIANT", "IPV4", "IPV6", "BITMAP", "HLL", "QUANTILE_STATE", "AGG_STATE" -> createUnboundedVarcharType();
-            default -> throw new TrinoException(NOT_SUPPORTED, "Unsupported Doris type '%s' for column '%s'".formatted(column.dataType(), column.columnName()));
+            case "STRING", "JSON", "JSONB", "IPV4", "IPV6" -> createUnboundedVarcharType();
+            case "ARRAY", "MAP", "STRUCT", "VARIANT", "BITMAP", "HLL", "QUANTILE_STATE", "AGG_STATE" -> throw unsupportedComplexType(column);
+            default -> throw new TrinoException(NOT_SUPPORTED, "Unsupported Doris type '%s' for column '%s'".formatted(fullTypeDeclaration(column), column.columnName()));
         };
     }
 
@@ -179,14 +179,41 @@ public class DorisTypeMapper
 
     private static String normalizedBaseType(DorisRemoteColumn column)
     {
-        String typeDeclaration = column.typeDefinition().orElse(column.dataType()).trim();
-        int parametersStart = typeDeclaration.indexOf('(');
+        String typeDeclaration = fullTypeDeclaration(column);
+        int parametersStart = firstTypeParameterStart(typeDeclaration);
         if (parametersStart >= 0) {
             typeDeclaration = typeDeclaration.substring(0, parametersStart);
         }
-        return typeDeclaration
+        return typeDeclaration.trim()
                 .toUpperCase(Locale.ENGLISH)
                 .replace(' ', '_');
+    }
+
+    private static String fullTypeDeclaration(DorisRemoteColumn column)
+    {
+        return column.typeDefinition()
+                .orElse(column.dataType())
+                .trim();
+    }
+
+    private static int firstTypeParameterStart(String typeDeclaration)
+    {
+        int parenthesisStart = typeDeclaration.indexOf('(');
+        int angleBracketStart = typeDeclaration.indexOf('<');
+        if (parenthesisStart < 0) {
+            return angleBracketStart;
+        }
+        if (angleBracketStart < 0) {
+            return parenthesisStart;
+        }
+        return min(parenthesisStart, angleBracketStart);
+    }
+
+    private static TrinoException unsupportedComplexType(DorisRemoteColumn column)
+    {
+        return new TrinoException(
+                NOT_SUPPORTED,
+                "Doris type '%s' for column '%s' is not supported by the Flight connector yet".formatted(fullTypeDeclaration(column), column.columnName()));
     }
 
     private static List<Integer> typeParameters(DorisRemoteColumn column)

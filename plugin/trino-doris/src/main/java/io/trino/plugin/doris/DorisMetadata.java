@@ -34,6 +34,7 @@ import io.trino.spi.connector.SchemaTablePrefix;
 import io.trino.spi.connector.SortItem;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.connector.TopNApplicationResult;
+import io.trino.spi.expression.Call;
 import io.trino.spi.expression.ConnectorExpression;
 import io.trino.spi.expression.Constant;
 import io.trino.spi.expression.Variable;
@@ -64,6 +65,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
+import static io.trino.spi.expression.StandardFunctions.CAST_FUNCTION_NAME;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.DoubleType.DOUBLE;
 import static java.util.Comparator.comparing;
@@ -541,7 +543,7 @@ public class DorisMetadata
 
     private static Optional<DorisAggregation> toAvgAggregation(AggregateFunction aggregate, Map<String, ColumnHandle> assignments, String outputColumnName)
     {
-        Optional<DorisColumnHandle> sourceColumn = toSingleSourceColumn(aggregate, assignments);
+        Optional<DorisColumnHandle> sourceColumn = toSingleAvgSourceColumn(aggregate, assignments);
         if (sourceColumn.isEmpty()) {
             return Optional.empty();
         }
@@ -581,12 +583,28 @@ public class DorisMetadata
         return Optional.empty();
     }
 
+    private static Optional<DorisColumnHandle> toSingleAvgSourceColumn(AggregateFunction aggregate, Map<String, ColumnHandle> assignments)
+    {
+        if (aggregate.getArguments().size() != 1) {
+            return Optional.empty();
+        }
+        return toAvgSourceColumn(aggregate.getArguments().getFirst(), assignments);
+    }
+
     private static Optional<DorisColumnHandle> toSingleSourceColumn(AggregateFunction aggregate, Map<String, ColumnHandle> assignments)
     {
         if (aggregate.getArguments().size() != 1) {
             return Optional.empty();
         }
         return toSourceColumn(aggregate.getArguments().getFirst(), assignments);
+    }
+
+    private static Optional<DorisColumnHandle> toAvgSourceColumn(ConnectorExpression expression, Map<String, ColumnHandle> assignments)
+    {
+        if (expression instanceof Call call && isSupportedAverageCast(call)) {
+            return toAvgSourceColumn(call.getArguments().getFirst(), assignments);
+        }
+        return toSourceColumn(expression, assignments);
     }
 
     private static Optional<DorisColumnHandle> toSourceColumn(ConnectorExpression expression, Map<String, ColumnHandle> assignments)
@@ -600,6 +618,28 @@ public class DorisMetadata
             return Optional.empty();
         }
         return Optional.of(dorisColumn);
+    }
+
+    private static boolean isSupportedAverageCast(Call call)
+    {
+        if (!call.getFunctionName().equals(CAST_FUNCTION_NAME) || call.getArguments().size() != 1) {
+            return false;
+        }
+
+        ConnectorExpression source = call.getArguments().getFirst();
+        return isSupportedAverageCast(source.getType(), call.getType());
+    }
+
+    private static boolean isSupportedAverageCast(Type sourceType, Type targetType)
+    {
+        if (sourceType.equals(targetType)) {
+            return true;
+        }
+
+        if (isIntegralType(sourceType)) {
+            return (isIntegralType(targetType) && integralTypeRank(targetType) >= integralTypeRank(sourceType)) || targetType == DOUBLE;
+        }
+        return sourceType == RealType.REAL && targetType == DOUBLE;
     }
 
     private static Optional<DorisAggregation> rewriteAggregationOverGroupedRows(
@@ -669,6 +709,23 @@ public class DorisMetadata
     private static boolean isIntegralType(Type type)
     {
         return type == TinyintType.TINYINT || type == SmallintType.SMALLINT || type == IntegerType.INTEGER || type == BIGINT;
+    }
+
+    private static int integralTypeRank(Type type)
+    {
+        if (type == TinyintType.TINYINT) {
+            return 1;
+        }
+        if (type == SmallintType.SMALLINT) {
+            return 2;
+        }
+        if (type == IntegerType.INTEGER) {
+            return 3;
+        }
+        if (type == BIGINT) {
+            return 4;
+        }
+        throw new IllegalArgumentException("Unsupported integral type: " + type);
     }
 
     private static boolean isNumericType(Type type)
