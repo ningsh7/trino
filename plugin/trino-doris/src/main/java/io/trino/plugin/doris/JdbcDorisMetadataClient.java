@@ -15,6 +15,7 @@ package io.trino.plugin.doris;
 
 import com.google.inject.Inject;
 import io.trino.spi.TrinoException;
+import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.SchemaTableName;
 
 import java.sql.Connection;
@@ -91,7 +92,13 @@ public class JdbcDorisMetadataClient
     @Override
     public List<String> listSchemaNames()
     {
-        try (Connection connection = connectionFactory.openConnection();
+        return listSchemaNames((ConnectorSession) null);
+    }
+
+    @Override
+    public List<String> listSchemaNames(ConnectorSession session)
+    {
+        try (Connection connection = openConnection(session);
                 PreparedStatement statement = connection.prepareStatement(LIST_SCHEMAS_SQL.formatted(VISIBLE_SCHEMAS_PREDICATE));
                 ResultSet resultSet = statement.executeQuery()) {
             List<String> schemas = new ArrayList<>();
@@ -110,7 +117,13 @@ public class JdbcDorisMetadataClient
     @Override
     public List<SchemaTableName> listTables(Optional<String> schemaName)
     {
-        try (Connection connection = connectionFactory.openConnection();
+        return listTables(null, schemaName);
+    }
+
+    @Override
+    public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> schemaName)
+    {
+        try (Connection connection = openConnection(session);
                 PreparedStatement statement = connection.prepareStatement(schemaName.isPresent()
                         ? LIST_TABLES_IN_SCHEMA_SQL.formatted(READABLE_TABLES_PREDICATE)
                         : LIST_ALL_TABLES_SQL.formatted(READABLE_TABLES_PREDICATE))) {
@@ -138,13 +151,19 @@ public class JdbcDorisMetadataClient
     @Override
     public Optional<DorisRemoteTable> getTable(SchemaTableName tableName)
     {
-        Optional<ResolvedTable> resolvedTable = resolveTable(tableName);
+        return getTable(null, tableName);
+    }
+
+    @Override
+    public Optional<DorisRemoteTable> getTable(ConnectorSession session, SchemaTableName tableName)
+    {
+        Optional<ResolvedTable> resolvedTable = resolveTable(session, tableName);
         if (resolvedTable.isEmpty()) {
             return Optional.empty();
         }
 
         ResolvedTable remoteTable = resolvedTable.orElseThrow();
-        List<DorisRemoteColumn> columns = loadColumns(remoteTable.toSchemaTableName());
+        List<DorisRemoteColumn> columns = loadColumns(session, remoteTable.toSchemaTableName());
         if (columns.isEmpty()) {
             return Optional.empty();
         }
@@ -158,12 +177,18 @@ public class JdbcDorisMetadataClient
     @Override
     public OptionalLong getTableRowCount(SchemaTableName tableName)
     {
-        Optional<ResolvedTable> resolvedTable = resolveTable(tableName);
+        return getTableRowCount(null, tableName);
+    }
+
+    @Override
+    public OptionalLong getTableRowCount(ConnectorSession session, SchemaTableName tableName)
+    {
+        Optional<ResolvedTable> resolvedTable = resolveTable(session, tableName);
         if (resolvedTable.isEmpty()) {
             return OptionalLong.empty();
         }
 
-        try (Connection connection = connectionFactory.openConnection();
+        try (Connection connection = openConnection(session);
                 PreparedStatement statement = connection.prepareStatement(TABLE_ROW_COUNT_SQL)) {
             statement.setString(1, resolvedTable.orElseThrow().schemaName());
             statement.setString(2, resolvedTable.orElseThrow().tableName());
@@ -185,9 +210,9 @@ public class JdbcDorisMetadataClient
         }
     }
 
-    private Optional<ResolvedTable> resolveTable(SchemaTableName tableName)
+    private Optional<ResolvedTable> resolveTable(ConnectorSession session, SchemaTableName tableName)
     {
-        try (Connection connection = connectionFactory.openConnection();
+        try (Connection connection = openConnection(session);
                 PreparedStatement statement = connection.prepareStatement(RESOLVE_TABLE_SQL.formatted(READABLE_TABLES_PREDICATE))) {
             statement.setString(1, tableName.getSchemaName());
             statement.setString(2, tableName.getTableName());
@@ -218,9 +243,9 @@ public class JdbcDorisMetadataClient
         }
     }
 
-    private List<DorisRemoteColumn> loadColumns(SchemaTableName tableName)
+    private List<DorisRemoteColumn> loadColumns(ConnectorSession session, SchemaTableName tableName)
     {
-        try (Connection connection = connectionFactory.openConnection();
+        try (Connection connection = openConnection(session);
                 PreparedStatement statement = connection.prepareStatement(LIST_COLUMNS_SQL)) {
             statement.setString(1, tableName.getSchemaName());
             statement.setString(2, tableName.getTableName());
@@ -242,6 +267,15 @@ public class JdbcDorisMetadataClient
         catch (SQLException e) {
             throw DorisJdbcConnectionFactory.jdbcOperationFailed("Failed to load Doris columns for table '%s'".formatted(tableName), e);
         }
+    }
+
+    private Connection openConnection(ConnectorSession session)
+            throws SQLException
+    {
+        if (session == null) {
+            return connectionFactory.openConnection();
+        }
+        return connectionFactory.openConnection(session);
     }
 
     private static Optional<Integer> getOptionalInt(ResultSet resultSet, String columnLabel)

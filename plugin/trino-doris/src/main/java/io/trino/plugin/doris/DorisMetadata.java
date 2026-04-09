@@ -63,7 +63,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 
+import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.expression.StandardFunctions.CAST_FUNCTION_NAME;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -77,19 +79,26 @@ public class DorisMetadata
     private final DorisMetadataClient metadataClient;
     private final DorisTypeMapper typeMapper;
     private final DorisFilterToSql filterToSql;
+    private final Set<DorisQueryEventListener> queryEventListeners;
+
+    public DorisMetadata(DorisMetadataClient metadataClient, DorisTypeMapper typeMapper, DorisFilterToSql filterToSql)
+    {
+        this(metadataClient, typeMapper, filterToSql, Set.of());
+    }
 
     @Inject
-    public DorisMetadata(DorisMetadataClient metadataClient, DorisTypeMapper typeMapper, DorisFilterToSql filterToSql)
+    public DorisMetadata(DorisMetadataClient metadataClient, DorisTypeMapper typeMapper, DorisFilterToSql filterToSql, Set<DorisQueryEventListener> queryEventListeners)
     {
         this.metadataClient = requireNonNull(metadataClient, "metadataClient is null");
         this.typeMapper = requireNonNull(typeMapper, "typeMapper is null");
         this.filterToSql = requireNonNull(filterToSql, "filterToSql is null");
+        this.queryEventListeners = Set.copyOf(requireNonNull(queryEventListeners, "queryEventListeners is null"));
     }
 
     @Override
     public List<String> listSchemaNames(ConnectorSession session)
     {
-        return metadataClient.listSchemaNames();
+        return metadataClient.listSchemaNames(session);
     }
 
     @Override
@@ -98,7 +107,7 @@ public class DorisMetadata
         if (startVersion.isPresent() || endVersion.isPresent()) {
             throw new TrinoException(NOT_SUPPORTED, "This connector does not support versioned tables");
         }
-        return metadataClient.getTable(tableName)
+        return metadataClient.getTable(session, tableName)
                 .map(remoteTable -> new DorisTableHandle(
                         tableName.getSchemaName(),
                         tableName.getTableName(),
@@ -110,7 +119,7 @@ public class DorisMetadata
     @Override
     public List<SchemaTableName> listTables(ConnectorSession session, Optional<String> optionalSchemaName)
     {
-        return metadataClient.listTables(optionalSchemaName);
+        return metadataClient.listTables(session, optionalSchemaName);
     }
 
     @Override
@@ -120,7 +129,7 @@ public class DorisMetadata
         if (tableHandle.aggregations().isPresent()) {
             return new ConnectorTableMetadata(tableHandle.toSchemaTableName(), toColumnMetadataFromHandles(tableHandle.outputColumns()));
         }
-        return getRemoteTable(tableHandle)
+        return getRemoteTable(session, tableHandle)
                 .map(this::toTableMetadata)
                 .orElse(null);
     }
@@ -137,7 +146,7 @@ public class DorisMetadata
             return Collections.unmodifiableMap(aggregationColumns);
         }
 
-        DorisRemoteTable remoteTable = getRemoteTable(dorisTableHandle)
+        DorisRemoteTable remoteTable = getRemoteTable(session, dorisTableHandle)
                 .orElseThrow(() -> new TableNotFoundException(dorisTableHandle.toSchemaTableName()));
 
         Map<String, ColumnHandle> columnHandles = new LinkedHashMap<>();
@@ -155,7 +164,7 @@ public class DorisMetadata
 
         Map<SchemaTableName, List<ColumnMetadata>> tableColumns = new LinkedHashMap<>();
         for (SchemaTableName tableName : listTables(session, prefix)) {
-            getRemoteTable(tableName).ifPresent(remoteTable -> tableColumns.put(tableName, toColumnMetadata(remoteTable.columns())));
+            getRemoteTable(session, tableName).ifPresent(remoteTable -> tableColumns.put(tableName, toColumnMetadata(remoteTable.columns())));
         }
         return Collections.unmodifiableMap(tableColumns);
     }
@@ -371,7 +380,7 @@ public class DorisMetadata
                     .build();
         }
 
-        OptionalLong rowCount = metadataClient.getTableRowCount(handle.toSchemaTableName());
+        OptionalLong rowCount = metadataClient.getTableRowCount(session, handle.toSchemaTableName());
         if (rowCount.isEmpty()) {
             return TableStatistics.empty();
         }
@@ -381,14 +390,45 @@ public class DorisMetadata
                 .build();
     }
 
-    private Optional<DorisRemoteTable> getRemoteTable(DorisTableHandle tableHandle)
+    @Override
+    public void beginQuery(ConnectorSession session)
     {
-        return getRemoteTable(tableHandle.toSchemaTableName());
+        onQueryEvent(listener -> listener.beginQuery(session), "Doris query initialization failed");
     }
 
-    private Optional<DorisRemoteTable> getRemoteTable(SchemaTableName tableName)
+    @Override
+    public void cleanupQuery(ConnectorSession session)
     {
-        return metadataClient.getTable(tableName);
+        onQueryEvent(listener -> listener.cleanupQuery(session), "Doris query cleanup failed");
+    }
+
+    private void onQueryEvent(java.util.function.Consumer<DorisQueryEventListener> listenerConsumer, String errorMessage)
+    {
+        List<RuntimeException> failures = new ArrayList<>();
+        for (DorisQueryEventListener listener : queryEventListeners) {
+            try {
+                listenerConsumer.accept(listener);
+            }
+            catch (RuntimeException failure) {
+                failures.add(failure);
+            }
+        }
+
+        if (!failures.isEmpty()) {
+            TrinoException exception = new TrinoException(GENERIC_INTERNAL_ERROR, errorMessage);
+            failures.forEach(exception::addSuppressed);
+            throw exception;
+        }
+    }
+
+    private Optional<DorisRemoteTable> getRemoteTable(ConnectorSession session, DorisTableHandle tableHandle)
+    {
+        return getRemoteTable(session, tableHandle.toSchemaTableName());
+    }
+
+    private Optional<DorisRemoteTable> getRemoteTable(ConnectorSession session, SchemaTableName tableName)
+    {
+        return metadataClient.getTable(session, tableName);
     }
 
     private ConnectorTableMetadata toTableMetadata(DorisRemoteTable remoteTable)

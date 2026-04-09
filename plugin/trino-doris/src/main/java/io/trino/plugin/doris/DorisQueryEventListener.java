@@ -15,12 +15,9 @@ package io.trino.plugin.doris;
 
 import io.trino.spi.connector.ConnectorSession;
 
-public interface DorisFlightSqlPortResolver
+public interface DorisQueryEventListener
 {
-    default int resolveFlightSqlPort(ConnectorSession session)
-    {
-        return resolveFlightSqlPort();
-    }
+    default void beginQuery(ConnectorSession session) {}
 
-    int resolveFlightSqlPort();
+    default void cleanupQuery(ConnectorSession session) {}
 }

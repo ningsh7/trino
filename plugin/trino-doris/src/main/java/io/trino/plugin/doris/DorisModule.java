@@ -16,6 +16,7 @@ package io.trino.plugin.doris;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Scopes;
+import com.google.inject.multibindings.Multibinder;
 
 import static io.airlift.configuration.ConfigBinder.configBinder;
 
@@ -27,15 +28,20 @@ public class DorisModule
     {
         // Bind the Phase 1 connector surface as singletons so the same instances can
         // later own FE control-plane clients and Flight SQL read resources.
+        Multibinder<DorisQueryEventListener> queryEventListeners = Multibinder.newSetBinder(binder, DorisQueryEventListener.class);
+
         binder.bind(DorisConnector.class).in(Scopes.SINGLETON);
         binder.bind(DorisJdbcConnectionFactory.class).in(Scopes.SINGLETON);
+        queryEventListeners.addBinding().to(DorisJdbcConnectionFactory.class);
         binder.bind(DorisMetadataClient.class).to(JdbcDorisMetadataClient.class).in(Scopes.SINGLETON);
         binder.bind(DorisFlightSqlPortResolver.class).to(JdbcDorisFlightSqlPortResolver.class).in(Scopes.SINGLETON);
         binder.bind(DorisMetadata.class).in(Scopes.SINGLETON);
         binder.bind(DorisFilterToSql.class).in(Scopes.SINGLETON);
         binder.bind(DorisQueryBuilder.class).in(Scopes.SINGLETON);
         binder.bind(DorisSplitPlanner.class).to(FeDorisSplitPlanner.class).in(Scopes.SINGLETON);
-        binder.bind(DorisFlightSqlClient.class).to(AdbcDorisFlightSqlClient.class).in(Scopes.SINGLETON);
+        binder.bind(AdbcDorisFlightSqlClient.class).in(Scopes.SINGLETON);
+        binder.bind(DorisFlightSqlClient.class).to(AdbcDorisFlightSqlClient.class);
+        queryEventListeners.addBinding().to(AdbcDorisFlightSqlClient.class);
         binder.bind(DorisArrowToPageConverter.class).in(Scopes.SINGLETON);
         binder.bind(DorisTypeMapper.class).in(Scopes.SINGLETON);
         binder.bind(DorisSplitManager.class).in(Scopes.SINGLETON);

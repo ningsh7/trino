@@ -13,9 +13,16 @@
  */
 package io.trino.plugin.doris;
 
+import io.trino.spi.connector.ConnectorSession;
+
 import java.util.List;
 
 public interface DorisFlightSqlClient
 {
+    default DorisFlightSqlResult openStream(ConnectorSession session, DorisTableHandle tableHandle, DorisSplit split, List<DorisColumnHandle> columns)
+    {
+        return openStream(tableHandle, split, columns);
+    }
+
     DorisFlightSqlResult openStream(DorisTableHandle tableHandle, DorisSplit split, List<DorisColumnHandle> columns);
 }

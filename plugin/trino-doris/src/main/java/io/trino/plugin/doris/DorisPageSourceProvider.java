@@ -60,7 +60,7 @@ public class DorisPageSourceProvider
 
         // The split's BE address remains a scheduling hint. Flight SQL still starts at FE and lets Doris hand out the real endpoints.
         return new DorisFlightSqlPageSource(
-                flightSqlClient.openStream(dorisTable, dorisSplit, dorisColumns),
+                flightSqlClient.openStream(session, dorisTable, dorisSplit, dorisColumns),
                 arrowToPageConverter,
                 dorisColumns);
     }

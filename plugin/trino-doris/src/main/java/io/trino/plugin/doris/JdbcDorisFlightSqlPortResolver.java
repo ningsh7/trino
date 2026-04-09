@@ -15,6 +15,7 @@ package io.trino.plugin.doris;
 
 import com.google.inject.Inject;
 import io.trino.spi.TrinoException;
+import io.trino.spi.connector.ConnectorSession;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -48,6 +49,12 @@ public class JdbcDorisFlightSqlPortResolver
     @Override
     public int resolveFlightSqlPort()
     {
+        return resolveFlightSqlPort(null);
+    }
+
+    @Override
+    public int resolveFlightSqlPort(ConnectorSession session)
+    {
         if (config.getFlightSqlPort() > 0) {
             return config.getFlightSqlPort();
         }
@@ -59,7 +66,7 @@ public class JdbcDorisFlightSqlPortResolver
 
         synchronized (this) {
             if (cachedFlightSqlPort == null) {
-                cachedFlightSqlPort = discoverFlightSqlPort();
+                cachedFlightSqlPort = discoverFlightSqlPort(session);
             }
             return cachedFlightSqlPort;
         }
@@ -75,9 +82,9 @@ public class JdbcDorisFlightSqlPortResolver
         return -1;
     }
 
-    private int discoverFlightSqlPort()
+    private int discoverFlightSqlPort(ConnectorSession session)
     {
-        try (Connection connection = connectionFactory.openConnection();
+        try (Connection connection = openConnection(session);
                 PreparedStatement statement = connection.prepareStatement(SHOW_FRONTENDS_SQL);
                 ResultSet resultSet = statement.executeQuery()) {
             List<String> columnNames = getColumnNames(resultSet.getMetaData());
@@ -98,6 +105,15 @@ public class JdbcDorisFlightSqlPortResolver
         }
 
         throw new TrinoException(GENERIC_INTERNAL_ERROR, "Failed to auto-discover Doris Flight SQL port from SHOW FRONTENDS");
+    }
+
+    private Connection openConnection(ConnectorSession session)
+            throws SQLException
+    {
+        if (session == null) {
+            return connectionFactory.openConnection();
+        }
+        return connectionFactory.openConnection(session);
     }
 
     private static List<String> getColumnNames(ResultSetMetaData metadata)
