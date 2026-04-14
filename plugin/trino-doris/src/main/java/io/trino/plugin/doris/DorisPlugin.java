@@ -24,7 +24,6 @@ public class DorisPlugin
     @Override
     public Iterable<ConnectorFactory> getConnectorFactories()
     {
-        // Phase 1 exposes a single native Doris connector implementation.
         return List.of(new DorisConnectorFactory());
     }
 }

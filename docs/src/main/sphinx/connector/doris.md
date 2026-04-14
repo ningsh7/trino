@@ -5,8 +5,8 @@ The Doris connector allows querying tables in an external
 for Doris and plans reads through Doris FE before fetching data with Arrow
 Flight SQL.
 
-This initial version is read-only. It focuses on Doris-native query planning,
-metadata lookup, and conservative pushdown for analytical reads.
+It focuses on Doris-native query planning, metadata lookup, and pushdown for
+analytical reads.
 
 ## Requirements
 
@@ -101,8 +101,7 @@ normalizes identifiers to lowercase.
 
 ## Type mapping
 
-The connector currently supports Doris-to-Trino type mapping only, because the
-connector is read-only.
+The connector supports Doris-to-Trino type mapping.
 
 ### Doris to Trino type mapping
 
@@ -280,7 +279,7 @@ important ways:
 
 - It uses Doris FE query planning plus Arrow Flight SQL for reads instead of
   the generic MySQL JDBC path.
-- It is currently read-only and tuned for Doris-specific metadata handling,
+- It is tuned for Doris-specific metadata handling,
   case resolution, and pushdown behavior.
 
 Use the Doris connector when you want Doris-native read planning and Flight SQL

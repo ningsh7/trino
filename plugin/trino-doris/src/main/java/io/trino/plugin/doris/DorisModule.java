@@ -26,8 +26,6 @@ public class DorisModule
     @Override
     public void configure(Binder binder)
     {
-        // Bind the Phase 1 connector surface as singletons so the same instances can
-        // later own FE control-plane clients and Flight SQL read resources.
         Multibinder<DorisQueryEventListener> queryEventListeners = Multibinder.newSetBinder(binder, DorisQueryEventListener.class);
 
         binder.bind(DorisConnector.class).in(Scopes.SINGLETON);

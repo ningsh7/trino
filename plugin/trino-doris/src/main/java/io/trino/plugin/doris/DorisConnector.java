@@ -49,7 +49,6 @@ public class DorisConnector
     @Override
     public ConnectorTransactionHandle beginTransaction(IsolationLevel isolationLevel, boolean readOnly, boolean autoCommit)
     {
-        // The connector is read-only for now, so a singleton transaction handle is enough.
         return DorisTransactionHandle.INSTANCE;
     }
 
