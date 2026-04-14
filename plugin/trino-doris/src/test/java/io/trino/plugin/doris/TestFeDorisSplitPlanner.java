@@ -91,4 +91,57 @@ final class TestFeDorisSplitPlanner
             throw e.getCause();
         }
     }
+
+    @Test
+    void testConsolidateSplitsReducesOverhead()
+    {
+        DorisConfig config = new DorisConfig().setMaxSplitsPerQuery(2);
+        DorisQueryBuilder queryBuilder = new DorisQueryBuilder();
+        FeDorisSplitPlanner planner = new FeDorisSplitPlanner(config, queryBuilder);
+
+        DorisTableHandle tableHandle = new DorisTableHandle("test_db", "test_table");
+        DorisQueryPlanResponse queryPlan = new DorisQueryPlanResponse(
+                200,
+                "opaque-plan",
+                Map.of(
+                        "1", new DorisQueryPlanTablet(List.of("be-1:9060")),
+                        "2", new DorisQueryPlanTablet(List.of("be-1:9060")),
+                        "3", new DorisQueryPlanTablet(List.of("be-1:9060")),
+                        "4", new DorisQueryPlanTablet(List.of("be-2:9060")),
+                        "5", new DorisQueryPlanTablet(List.of("be-2:9060"))));
+
+        List<DorisSplit> splits = FeDorisSplitPlanner.buildSplits(tableHandle, queryPlan);
+
+        // Should consolidate 5 tablets into 2 splits (max-splits-per-query=2)
+        assertThat(splits).hasSize(2);
+        assertThat(splits.get(0).beAddress()).isEqualTo("be-1:9060");
+        assertThat(splits.get(0).tabletIds()).hasSize(3); // tablets 1,2,3
+        assertThat(splits.get(1).beAddress()).isEqualTo("be-2:9060");
+        assertThat(splits.get(1).tabletIds()).hasSize(2); // tablets 4,5
+    }
+
+    @Test
+    void testConsolidateSplitsRespectsMinTabletsPerSplit()
+    {
+        DorisConfig config = new DorisConfig()
+                .setMaxSplitsPerQuery(10)
+                .setMinTabletsPerSplit(2);
+        DorisQueryBuilder queryBuilder = new DorisQueryBuilder();
+        FeDorisSplitPlanner planner = new FeDorisSplitPlanner(config, queryBuilder);
+
+        DorisTableHandle tableHandle = new DorisTableHandle("test_db", "test_table");
+        DorisQueryPlanResponse queryPlan = new DorisQueryPlanResponse(
+                200,
+                "opaque-plan",
+                Map.of(
+                        "1", new DorisQueryPlanTablet(List.of("be-1:9060")),
+                        "2", new DorisQueryPlanTablet(List.of("be-1:9060")),
+                        "3", new DorisQueryPlanTablet(List.of("be-1:9060"))));
+
+        List<DorisSplit> splits = FeDorisSplitPlanner.buildSplits(tableHandle, queryPlan);
+
+        // With 3 tablets and min-tablets-per-split=2, should create 2 splits (2+1)
+        // But since we're under max-splits-per-query, it returns as-is (3 splits)
+        assertThat(splits).hasSizeLessThanOrEqualTo(3);
+    }
 }

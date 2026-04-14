@@ -33,14 +33,12 @@ public class DorisPageSourceProvider
         implements ConnectorPageSourceProvider
 {
     private final DorisFlightSqlClient flightSqlClient;
-    private final DorisJdbcPageSourceFactory jdbcPageSourceFactory;
     private final DorisArrowToPageConverter arrowToPageConverter;
 
     @Inject
-    public DorisPageSourceProvider(DorisFlightSqlClient flightSqlClient, DorisJdbcPageSourceFactory jdbcPageSourceFactory, DorisArrowToPageConverter arrowToPageConverter)
+    public DorisPageSourceProvider(DorisFlightSqlClient flightSqlClient, DorisArrowToPageConverter arrowToPageConverter)
     {
         this.flightSqlClient = requireNonNull(flightSqlClient, "flightSqlClient is null");
-        this.jdbcPageSourceFactory = requireNonNull(jdbcPageSourceFactory, "jdbcPageSourceFactory is null");
         this.arrowToPageConverter = requireNonNull(arrowToPageConverter, "arrowToPageConverter is null");
     }
 
@@ -60,12 +58,6 @@ public class DorisPageSourceProvider
                 .map(DorisColumnHandle.class::cast)
                 .toList();
 
-        Optional<ConnectorPageSource> jdbcPageSource = jdbcPageSourceFactory.createPageSource(session, dorisTable, dorisSplit, dorisColumns);
-        if (jdbcPageSource.isPresent()) {
-            return jdbcPageSource.orElseThrow();
-        }
-
-        // The split's BE address remains a scheduling hint. Flight SQL still starts at FE and lets Doris hand out the real endpoints.
         return new DorisFlightSqlPageSource(
                 flightSqlClient.openStream(session, dorisTable, dorisSplit, dorisColumns),
                 arrowToPageConverter,

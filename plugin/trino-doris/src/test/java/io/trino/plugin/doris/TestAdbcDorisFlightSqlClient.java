@@ -126,7 +126,8 @@ final class TestAdbcDorisFlightSqlClient
                 new DorisQueryBuilder(),
                 portResolver,
                 openerFactory,
-                () -> List.of("fe1"));
+                () -> List.of("fe1"),
+                null); // No connection pool in tests
     }
 
     private static DorisTableHandle tableHandle()

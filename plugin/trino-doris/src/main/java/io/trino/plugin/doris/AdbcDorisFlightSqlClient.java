@@ -53,6 +53,7 @@ public class AdbcDorisFlightSqlClient
     private final DorisFlightSqlPortResolver portResolver;
     private final FlightSqlStreamOpenerFactory streamOpenerFactory;
     private final Supplier<List<String>> feHostsSupplier;
+    private final DorisFlightSqlConnectionPool connectionPool;
     private final Set<String> activeQueries = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<String, QueryResources> queryResources = new ConcurrentHashMap<>();
     private volatile List<String> cachedFeHosts;
@@ -66,7 +67,19 @@ public class AdbcDorisFlightSqlClient
                 queryBuilder,
                 portResolver,
                 new AdbcFlightSqlStreamOpenerFactory(config),
-                () -> DorisFeEndpoints.getHosts(config));
+                () -> DorisFeEndpoints.getHosts(config),
+                createConnectionPool(config, new AdbcFlightSqlStreamOpenerFactory(config)));
+    }
+
+    private static DorisFlightSqlConnectionPool createConnectionPool(DorisConfig config, FlightSqlStreamOpenerFactory streamOpenerFactory)
+    {
+        if (!config.isFlightSqlConnectionPoolEnabled()) {
+            return null;
+        }
+        return new DorisFlightSqlConnectionPool(
+                streamOpenerFactory,
+                config.getFlightSqlConnectionPoolSize(),
+                io.airlift.units.Duration.succinctDuration(config.getFlightSqlConnectionIdleTimeoutSeconds(), java.util.concurrent.TimeUnit.SECONDS));
     }
 
     AdbcDorisFlightSqlClient(
@@ -74,13 +87,15 @@ public class AdbcDorisFlightSqlClient
             DorisQueryBuilder queryBuilder,
             DorisFlightSqlPortResolver portResolver,
             FlightSqlStreamOpenerFactory streamOpenerFactory,
-            Supplier<List<String>> feHostsSupplier)
+            Supplier<List<String>> feHostsSupplier,
+            DorisFlightSqlConnectionPool connectionPool)
     {
         this.config = requireNonNull(config, "config is null");
         this.queryBuilder = requireNonNull(queryBuilder, "queryBuilder is null");
         this.portResolver = requireNonNull(portResolver, "portResolver is null");
         this.streamOpenerFactory = requireNonNull(streamOpenerFactory, "streamOpenerFactory is null");
         this.feHostsSupplier = requireNonNull(feHostsSupplier, "feHostsSupplier is null");
+        this.connectionPool = connectionPool;
     }
 
     @Override
@@ -169,6 +184,9 @@ public class AdbcDorisFlightSqlClient
         activeQueries.clear();
         queryResources.values().forEach(AdbcDorisFlightSqlClient::closeQuietly);
         queryResources.clear();
+        if (connectionPool != null) {
+            closeQuietly(connectionPool);
+        }
     }
 
     private QueryResources getQueryResources(ConnectorSession session)
@@ -186,6 +204,22 @@ public class AdbcDorisFlightSqlClient
 
     private DorisFlightSqlResult openStream(QueryResources reusableQueryResources, String feHost, int flightSqlPort, String sql)
     {
+        // Try connection pool first (cross-query reuse)
+        if (connectionPool != null) {
+            Optional<DorisFlightSqlConnectionPool.PooledConnection> pooledConnection = connectionPool.tryAcquire(feHost, flightSqlPort);
+            if (pooledConnection.isPresent()) {
+                try {
+                    DorisFlightSqlResult result = pooledConnection.get().openStream(sql);
+                    return new ManagedDorisFlightSqlResult(result, pooledConnection.get()::close);
+                }
+                catch (RuntimeException e) {
+                    pooledConnection.get().forceClose();
+                    throw e;
+                }
+            }
+        }
+
+        // Fall back to query-scoped reuse or standalone
         if (reusableQueryResources == null) {
             return openStandaloneStream(feHost, flightSqlPort, sql);
         }
@@ -194,6 +228,23 @@ public class AdbcDorisFlightSqlClient
 
     private DorisFlightSqlResult openStandaloneStream(String feHost, int flightSqlPort, String sql)
     {
+        // If connection pool is enabled, create a pooled connection
+        if (connectionPool != null) {
+            DorisFlightSqlConnectionPool.PooledConnection pooledConnection = connectionPool.createConnection(feHost, flightSqlPort);
+            if (pooledConnection.tryAcquire()) {
+                try {
+                    DorisFlightSqlResult result = pooledConnection.openStream(sql);
+                    return new ManagedDorisFlightSqlResult(result, pooledConnection::close);
+                }
+                catch (RuntimeException e) {
+                    pooledConnection.forceClose();
+                    throw e;
+                }
+            }
+            pooledConnection.forceClose();
+        }
+
+        // Fall back to non-pooled connection
         FlightSqlStreamOpener opener = streamOpenerFactory.create(feHost, flightSqlPort);
 
         try {

@@ -73,6 +73,23 @@ The configuration properties are:
   - No
   - Mapping for Doris `LARGEINT`. Valid values are `VARCHAR` and `DECIMAL`.
     The default is `VARCHAR`.
+* - `doris.max-splits-per-query`
+  - No
+  - Maximum number of splits to generate per query. Reduces scheduling overhead
+    for small queries. The default is `64`.
+* - `doris.min-tablets-per-split`
+  - No
+  - Minimum number of tablets per split when consolidating. The default is `1`.
+* - `doris.flight-sql-connection-pool-enabled`
+  - No
+  - Enable Flight SQL connection pooling across queries. The default is `true`.
+* - `doris.flight-sql-connection-pool-size`
+  - No
+  - Maximum connections per endpoint in the Flight SQL connection pool. The
+    default is `8`.
+* - `doris.flight-sql-connection-idle-timeout-seconds`
+  - No
+  - Flight SQL connection idle timeout in seconds. The default is `300` (5 minutes).
 :::
 
 If Flight SQL auto-discovery is not available in your Doris deployment, set

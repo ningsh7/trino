@@ -33,6 +33,16 @@ public class DorisConfig
     private int flightSqlPort;
     // LARGEINT defaults to VARCHAR to avoid silently truncating 128-bit values.
     private DorisLargeintMapping largeintMapping = DorisLargeintMapping.VARCHAR;
+    // Maximum number of splits to generate. Helps reduce overhead for small queries.
+    private int maxSplitsPerQuery = 64;
+    // Minimum number of tablets per split. Helps consolidate small tables into fewer splits.
+    private int minTabletsPerSplit = 1;
+    // Enable Flight SQL connection pooling across queries
+    private boolean flightSqlConnectionPoolEnabled = true;
+    // Maximum connections per endpoint in the pool
+    private int flightSqlConnectionPoolSize = 8;
+    // Connection idle timeout in seconds
+    private int flightSqlConnectionIdleTimeoutSeconds = 300;
 
     public Optional<String> getFenodes()
     {
@@ -110,6 +120,75 @@ public class DorisConfig
     public DorisConfig setLargeintMapping(DorisLargeintMapping largeintMapping)
     {
         this.largeintMapping = largeintMapping;
+        return this;
+    }
+
+    @Min(1)
+    public int getMaxSplitsPerQuery()
+    {
+        return maxSplitsPerQuery;
+    }
+
+    @Config("doris.max-splits-per-query")
+    @ConfigDescription("Maximum number of splits to generate per query. Reduces overhead for small queries")
+    public DorisConfig setMaxSplitsPerQuery(int maxSplitsPerQuery)
+    {
+        this.maxSplitsPerQuery = maxSplitsPerQuery;
+        return this;
+    }
+
+    @Min(1)
+    public int getMinTabletsPerSplit()
+    {
+        return minTabletsPerSplit;
+    }
+
+    @Config("doris.min-tablets-per-split")
+    @ConfigDescription("Minimum number of tablets per split. Helps consolidate small tables")
+    public DorisConfig setMinTabletsPerSplit(int minTabletsPerSplit)
+    {
+        this.minTabletsPerSplit = minTabletsPerSplit;
+        return this;
+    }
+
+    public boolean isFlightSqlConnectionPoolEnabled()
+    {
+        return flightSqlConnectionPoolEnabled;
+    }
+
+    @Config("doris.flight-sql-connection-pool-enabled")
+    @ConfigDescription("Enable Flight SQL connection pooling across queries")
+    public DorisConfig setFlightSqlConnectionPoolEnabled(boolean flightSqlConnectionPoolEnabled)
+    {
+        this.flightSqlConnectionPoolEnabled = flightSqlConnectionPoolEnabled;
+        return this;
+    }
+
+    @Min(1)
+    public int getFlightSqlConnectionPoolSize()
+    {
+        return flightSqlConnectionPoolSize;
+    }
+
+    @Config("doris.flight-sql-connection-pool-size")
+    @ConfigDescription("Maximum connections per endpoint in the Flight SQL connection pool")
+    public DorisConfig setFlightSqlConnectionPoolSize(int flightSqlConnectionPoolSize)
+    {
+        this.flightSqlConnectionPoolSize = flightSqlConnectionPoolSize;
+        return this;
+    }
+
+    @Min(1)
+    public int getFlightSqlConnectionIdleTimeoutSeconds()
+    {
+        return flightSqlConnectionIdleTimeoutSeconds;
+    }
+
+    @Config("doris.flight-sql-connection-idle-timeout-seconds")
+    @ConfigDescription("Flight SQL connection idle timeout in seconds")
+    public DorisConfig setFlightSqlConnectionIdleTimeoutSeconds(int flightSqlConnectionIdleTimeoutSeconds)
+    {
+        this.flightSqlConnectionIdleTimeoutSeconds = flightSqlConnectionIdleTimeoutSeconds;
         return this;
     }
 }

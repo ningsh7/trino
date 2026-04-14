@@ -62,7 +62,67 @@ public class FeDorisSplitPlanner
     {
         String sql = queryBuilder.buildSplitPlanningSql(tableHandle);
         DorisQueryPlanResponse queryPlan = fetchQueryPlan(tableHandle, sql);
-        return buildSplits(tableHandle, queryPlan);
+        List<DorisSplit> splits = buildSplits(tableHandle, queryPlan);
+        return consolidateSplits(tableHandle, splits);
+    }
+
+    private List<DorisSplit> consolidateSplits(DorisTableHandle tableHandle, List<DorisSplit> splits)
+    {
+        int maxSplits = config.getMaxSplitsPerQuery();
+        int minTabletsPerSplit = config.getMinTabletsPerSplit();
+
+        // If already within limits, return as-is
+        if (splits.size() <= maxSplits) {
+            return splits;
+        }
+
+        // Calculate total tablets
+        int totalTablets = splits.stream()
+                .mapToInt(split -> split.tabletIds().size())
+                .sum();
+
+        // Calculate target tablets per split to stay under maxSplits
+        int targetTabletsPerSplit = Math.max(minTabletsPerSplit, (totalTablets + maxSplits - 1) / maxSplits);
+
+        // Consolidate splits by merging adjacent ones
+        List<DorisSplit> consolidated = new ArrayList<>();
+        List<Long> currentTablets = new ArrayList<>();
+        String currentBackend = null;
+
+        for (DorisSplit split : splits) {
+            if (currentBackend == null) {
+                currentBackend = split.beAddress();
+                currentTablets.addAll(split.tabletIds());
+            }
+            else if (currentBackend.equals(split.beAddress()) && currentTablets.size() < targetTabletsPerSplit) {
+                // Merge with current split if same backend and under target
+                currentTablets.addAll(split.tabletIds());
+            }
+            else {
+                // Flush current split
+                consolidated.add(new DorisSplit(
+                        tableHandle.remoteSchemaName(),
+                        tableHandle.remoteTableName(),
+                        currentBackend,
+                        List.copyOf(currentTablets),
+                        split.opaquedQueryPlan()));
+                currentBackend = split.beAddress();
+                currentTablets = new ArrayList<>(split.tabletIds());
+            }
+        }
+
+        // Flush last split
+        if (currentBackend != null && !currentTablets.isEmpty()) {
+            DorisSplit lastOriginal = splits.get(splits.size() - 1);
+            consolidated.add(new DorisSplit(
+                    tableHandle.remoteSchemaName(),
+                    tableHandle.remoteTableName(),
+                    currentBackend,
+                    List.copyOf(currentTablets),
+                    lastOriginal.opaquedQueryPlan()));
+        }
+
+        return consolidated;
     }
 
     static List<DorisSplit> buildSplits(DorisTableHandle tableHandle, DorisQueryPlanResponse queryPlan)

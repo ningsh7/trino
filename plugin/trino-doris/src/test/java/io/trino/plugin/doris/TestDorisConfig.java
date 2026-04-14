@@ -32,7 +32,12 @@ final class TestDorisConfig
                 .setUsername(null)
                 .setPassword(null)
                 .setFlightSqlPort(0)
-                .setLargeintMapping(DorisLargeintMapping.VARCHAR));
+                .setLargeintMapping(DorisLargeintMapping.VARCHAR)
+                .setMaxSplitsPerQuery(64)
+                .setMinTabletsPerSplit(1)
+                .setFlightSqlConnectionPoolEnabled(true)
+                .setFlightSqlConnectionPoolSize(8)
+                .setFlightSqlConnectionIdleTimeoutSeconds(300));
     }
 
     @Test
@@ -44,7 +49,12 @@ final class TestDorisConfig
                 Map.entry("doris.username", "trino"),
                 Map.entry("doris.password", "secret"),
                 Map.entry("doris.flight-sql-port", "9090"),
-                Map.entry("doris.largeint-mapping", "DECIMAL"));
+                Map.entry("doris.largeint-mapping", "DECIMAL"),
+                Map.entry("doris.max-splits-per-query", "32"),
+                Map.entry("doris.min-tablets-per-split", "5"),
+                Map.entry("doris.flight-sql-connection-pool-enabled", "false"),
+                Map.entry("doris.flight-sql-connection-pool-size", "16"),
+                Map.entry("doris.flight-sql-connection-idle-timeout-seconds", "600"));
 
         DorisConfig expected = new DorisConfig()
                 .setFenodes("fe1:8030,fe2:8030")
@@ -52,7 +62,12 @@ final class TestDorisConfig
                 .setUsername("trino")
                 .setPassword("secret")
                 .setFlightSqlPort(9090)
-                .setLargeintMapping(DorisLargeintMapping.DECIMAL);
+                .setLargeintMapping(DorisLargeintMapping.DECIMAL)
+                .setMaxSplitsPerQuery(32)
+                .setMinTabletsPerSplit(5)
+                .setFlightSqlConnectionPoolEnabled(false)
+                .setFlightSqlConnectionPoolSize(16)
+                .setFlightSqlConnectionIdleTimeoutSeconds(600);
 
         assertFullMapping(properties, expected);
     }
