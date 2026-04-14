@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 public class DorisQueryBuilder
 {
@@ -71,14 +72,11 @@ public class DorisQueryBuilder
                 .append(quoteIdentifier(tableHandle.remoteTableName()));
 
         if (tableHandle.aggregations().isEmpty() && !tabletIds.isEmpty()) {
-            sql.append(" TABLET(");
-            for (int i = 0; i < tabletIds.size(); i++) {
-                if (i > 0) {
-                    sql.append(",");
-                }
-                sql.append(tabletIds.get(i));
-            }
-            sql.append(")");
+            sql.append(" TABLET(")
+                    .append(tabletIds.stream()
+                            .map(String::valueOf)
+                            .collect(joining(",")))
+                    .append(")");
         }
 
         filter.filter(value -> !value.isBlank())
@@ -86,13 +84,11 @@ public class DorisQueryBuilder
         if (tableHandle.aggregations().isPresent()) {
             List<DorisColumnHandle> groupingColumns = tableHandle.groupingColumns().orElse(List.of());
             if (!groupingColumns.isEmpty()) {
-                sql.append(" GROUP BY ");
-                for (int index = 0; index < groupingColumns.size(); index++) {
-                    if (index > 0) {
-                        sql.append(", ");
-                    }
-                    sql.append(quoteIdentifier(groupingColumns.get(index).columnName()));
-                }
+                sql.append(" GROUP BY ")
+                        .append(groupingColumns.stream()
+                                .map(DorisColumnHandle::columnName)
+                                .map(DorisQueryBuilder::quoteIdentifier)
+                                .collect(joining(", ")));
             }
         }
         else {
@@ -135,8 +131,7 @@ public class DorisQueryBuilder
 
         return columnNames.stream()
                 .map(DorisQueryBuilder::quoteIdentifier)
-                .reduce((left, right) -> left + ", " + right)
-                .orElseThrow();
+                .collect(joining(", "));
     }
 
     private static String buildAggregationProjection(DorisTableHandle tableHandle, List<String> columnNames)
@@ -172,8 +167,7 @@ public class DorisQueryBuilder
                     }
                     return expression;
                 })
-                .reduce((left, right) -> left + ", " + right)
-                .orElseThrow();
+                .collect(joining(", "));
     }
 
     private static String buildOrderBy(List<DorisSortItem> sortItems)
@@ -190,8 +184,7 @@ public class DorisQueryBuilder
                         case DESC_NULLS_FIRST -> java.util.stream.Stream.of("ISNULL(" + column + ") DESC", columnSorting);
                     };
                 })
-                .reduce((left, right) -> left + ", " + right)
-                .orElseThrow();
+                .collect(joining(", "));
     }
 
     static String quoteIdentifier(String value)

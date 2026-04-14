@@ -15,6 +15,7 @@ package io.trino.plugin.doris;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
 import io.trino.spi.TrinoException;
 
@@ -106,7 +107,10 @@ public class FeDorisSplitPlanner
     {
         List<String> failures = new ArrayList<>();
         for (String feEndpoint : prioritizedFeEndpoints()) {
-            URI uri = URI.create("http://" + feEndpoint + "/api/" + tableHandle.remoteSchemaName() + "/" + tableHandle.remoteTableName() + "/_query_plan");
+            URI uri = URI.create("http://%s/api/%s/%s/_query_plan".formatted(
+                    feEndpoint,
+                    tableHandle.remoteSchemaName(),
+                    tableHandle.remoteTableName()));
             HttpRequest request = HttpRequest.newBuilder(uri)
                     .header("Authorization", basicAuthHeader)
                     .header("Content-Type", "application/json; charset=UTF-8")
@@ -146,14 +150,14 @@ public class FeDorisSplitPlanner
             return endpoints;
         }
 
-        List<String> prioritized = new ArrayList<>(endpoints.size());
+        ImmutableList.Builder<String> prioritized = ImmutableList.builderWithExpectedSize(endpoints.size());
         prioritized.add(preferred);
         for (String endpoint : endpoints) {
             if (!endpoint.equals(preferred)) {
                 prioritized.add(endpoint);
             }
         }
-        return List.copyOf(prioritized);
+        return prioritized.build();
     }
 
     private DorisQueryPlanResponse parseQueryPlan(String responseBody)

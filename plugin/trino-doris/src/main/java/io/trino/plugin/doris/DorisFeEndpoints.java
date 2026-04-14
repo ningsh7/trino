@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.doris;
 
+import com.google.common.base.Splitter;
 import io.trino.spi.HostAddress;
 import io.trino.spi.TrinoException;
 
@@ -23,15 +24,17 @@ import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 
 public final class DorisFeEndpoints
 {
+    private static final Splitter FE_NODES_SPLITTER = Splitter.on(',')
+            .trimResults()
+            .omitEmptyStrings();
+
     private DorisFeEndpoints() {}
 
     public static List<String> getHttpEndpoints(DorisConfig config)
     {
         List<String> endpoints = config.getFenodes()
                 .stream()
-                .flatMap(value -> List.of(value.split(",")).stream())
-                .map(String::trim)
-                .filter(value -> !value.isEmpty())
+                .flatMap(FE_NODES_SPLITTER::splitToStream)
                 .sorted(Comparator.naturalOrder())
                 .toList();
         if (endpoints.isEmpty()) {
