@@ -43,6 +43,7 @@ public class DorisModule
         binder.bind(DorisFlightSqlClient.class).to(AdbcDorisFlightSqlClient.class);
         queryEventListeners.addBinding().to(AdbcDorisFlightSqlClient.class);
         binder.bind(DorisArrowToPageConverter.class).in(Scopes.SINGLETON);
+        binder.bind(DorisJdbcPageSourceFactory.class).in(Scopes.SINGLETON);
         binder.bind(DorisTypeMapper.class).in(Scopes.SINGLETON);
         binder.bind(DorisSplitManager.class).in(Scopes.SINGLETON);
         binder.bind(DorisPageSourceProvider.class).in(Scopes.SINGLETON);

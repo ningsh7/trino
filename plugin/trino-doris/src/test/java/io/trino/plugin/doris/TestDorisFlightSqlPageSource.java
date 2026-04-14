@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.createVarcharType;
@@ -89,13 +90,41 @@ final class TestDorisFlightSqlPageSource
             assertThat(pageSource.getCompletedPositions().orElseThrow()).isEqualTo(2L);
 
             SourcePage secondPage = pageSource.getNextSourcePage();
-            assertThat(pageSource.isFinished()).isTrue();
+            assertThat(pageSource.isFinished()).isFalse();
             assertThat(secondPage.getPositionCount()).isEqualTo(1);
             assertThat(BIGINT.getLong(secondPage.getBlock(0), 0)).isEqualTo(3L);
             assertThat(createVarcharType(20).getObjectValue(secondPage.getBlock(1), 0)).isEqualTo("gamma");
             assertThat(pageSource.getCompletedPositions().orElseThrow()).isEqualTo(3L);
 
             assertThat(pageSource.getNextSourcePage()).isNull();
+            assertThat(pageSource.isFinished()).isTrue();
+        }
+    }
+
+    @Test
+    void testPageSourceDoesNotPrefetchEndOfStreamBeforeReturningCurrentPage()
+    {
+        List<DorisColumnHandle> columns = List.of(new DorisColumnHandle("id", BIGINT, 0));
+
+        try (RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+                BigIntVector id = new BigIntVector("id", allocator);
+                VectorSchemaRoot root = new VectorSchemaRoot(List.of(id))) {
+            id.allocateNew();
+            id.setSafe(0, 99L);
+            id.setValueCount(1);
+            root.setRowCount(1);
+
+            TestingDorisFlightSqlResult result = new TestingDorisFlightSqlResult(List.of(root));
+            DorisFlightSqlPageSource pageSource = new DorisFlightSqlPageSource(result, new DorisArrowToPageConverter(), columns);
+
+            SourcePage firstPage = pageSource.getNextSourcePage();
+
+            assertThat(firstPage.getPositionCount()).isEqualTo(1);
+            assertThat(BIGINT.getLong(firstPage.getBlock(0), 0)).isEqualTo(99L);
+            assertThat(result.loadCalls()).isEqualTo(1);
+
+            assertThat(pageSource.getNextSourcePage()).isNull();
+            assertThat(result.loadCalls()).isEqualTo(2);
         }
     }
 
@@ -103,6 +132,7 @@ final class TestDorisFlightSqlPageSource
             implements DorisFlightSqlResult
     {
         private final List<VectorSchemaRoot> roots;
+        private final AtomicInteger loadCalls = new AtomicInteger();
         private int index = -1;
 
         private TestingDorisFlightSqlResult(List<VectorSchemaRoot> roots)
@@ -113,6 +143,7 @@ final class TestDorisFlightSqlPageSource
         @Override
         public boolean loadNextBatch()
         {
+            loadCalls.incrementAndGet();
             index++;
             return index < roots.size();
         }
@@ -134,5 +165,10 @@ final class TestDorisFlightSqlPageSource
 
         @Override
         public void close() {}
+
+        public int loadCalls()
+        {
+            return loadCalls.get();
+        }
     }
 }

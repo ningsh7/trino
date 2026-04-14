@@ -17,6 +17,18 @@ To connect to Doris, you need:
   JDBC, and Flight SQL endpoints.
 - Doris credentials with permission to read metadata and query data.
 
+## Connector architecture
+
+The connector uses three Doris interfaces:
+
+- Doris FE HTTP endpoints from `doris.fenodes` for split planning.
+- Doris FE JDBC from `doris.jdbc-url` for metadata lookup and, when needed,
+  Arrow Flight SQL port discovery.
+- Doris Arrow Flight SQL for table reads.
+
+If `doris.flight-sql-port` is not configured, the connector discovers the port
+from `SHOW FRONTENDS`.
+
 ## Configuration
 
 To configure the Doris connector, create a catalog properties file in
@@ -66,6 +78,27 @@ The configuration properties are:
 If Flight SQL auto-discovery is not available in your Doris deployment, set
 `doris.flight-sql-port` explicitly.
 
+If you create multiple catalog properties files, Trino creates one Doris
+catalog for each file. The catalog name is the filename without the
+`.properties` suffix.
+
+## Metadata behavior
+
+The Doris connector exposes Doris metadata through Trino's lowercase identifier
+model.
+
+- Each Doris database appears as a Trino schema.
+- `SHOW SCHEMAS` excludes Doris internal schemas such as
+  `information_schema`, `__internal_schema`, and `mysql`.
+- Empty user schemas remain visible in `SHOW SCHEMAS`.
+- `SHOW TABLES` only lists readable Doris base tables whose engine is reported
+  as `OLAP` or `DORIS`.
+- Mixed-case Doris schema and table names are resolved back to the remote Doris
+  names during reads, as long as the lowercase name is unique.
+
+Objects that differ only by case are not addressable separately because Trino
+normalizes identifiers to lowercase.
+
 ## Type mapping
 
 The connector currently supports Doris-to-Trino type mapping only, because the
@@ -85,7 +118,8 @@ connector is read-only.
   -
 * - `TINYINT`
   - `BOOLEAN` or `TINYINT`
-  - Doris boolean aliases exposed as `TINYINT(0)` map to `BOOLEAN`.
+  - Doris boolean aliases exposed as `TINYINT(1)` or boolean metadata map to
+    `BOOLEAN`.
 * - `SMALLINT`
   - `SMALLINT`
   -
@@ -103,12 +137,11 @@ connector is read-only.
   - Controlled by `doris.largeint-mapping`. `VARCHAR` is the default to avoid
     truncating 128-bit values.
 * - `DECIMAL`, `DECIMALV2`, `DECIMALV3`, `DECIMAL32`, `DECIMAL64`,
-    `DECIMAL128`, `DECIMAL128I`
+    `DECIMAL128`, `DECIMAL128I`, `DECIMAL256`
   - `DECIMAL(p, s)` or `VARCHAR`
-  - Maps to `VARCHAR` when Doris precision cannot fit in Trino `DECIMAL`.
-* - `DECIMAL256`
-  - `VARCHAR`
-  -
+  - Maps to `VARCHAR` when Doris precision cannot fit in Trino `DECIMAL`, when
+    precision metadata is missing, or when the Doris declaration is invalid for
+    Trino.
 * - `FLOAT`
   - `REAL`
   -
@@ -125,19 +158,34 @@ connector is read-only.
   - `DATE`
   -
 * - `DATETIME`
-  - `TIMESTAMP(0)`
-  -
+  - `TIMESTAMP(p)`
+  - The connector keeps the precision from Doris type metadata when it is
+    available.
 * - `DATETIMEV2`
   - `TIMESTAMP(p)`
   - Precision is capped at `6`. The connector prefers Doris type definitions over
     generic JDBC metadata so `DATETIMEV2(3)` remains `TIMESTAMP(3)`.
-* - `STRING`, `JSON`, `JSONB`, `ARRAY`, `MAP`, `STRUCT`, `VARIANT`, `IPV4`,
-    `IPV6`, `BITMAP`, `HLL`, `QUANTILE_STATE`, `AGG_STATE`
+* - `STRING`, `JSON`, `JSONB`, `IPV4`, `IPV6`
   - `VARCHAR`
-  - These types currently fall back to textual reads.
+  - These values are read textually.
 :::
 
-No other Doris types are supported.
+### Unsupported Doris types
+
+The following Doris types are not supported by the connector yet:
+
+- `ARRAY`
+- `MAP`
+- `STRUCT`
+- `VARIANT`
+- `BITMAP`
+- `HLL`
+- `QUANTILE_STATE`
+- `AGG_STATE`
+
+These types fail fast with a `NOT_SUPPORTED` error during metadata access, for
+example in `SHOW COLUMNS` or `DESCRIBE`, instead of silently coercing the value
+to `VARCHAR`.
 
 ## Querying Doris
 
@@ -163,12 +211,6 @@ ORDER BY nationkey;
 If you used a different catalog properties filename, use that catalog name
 instead of `example`.
 
-The connector exposes Doris schemas and tables through Trino's lowercase
-identifier model. Mixed-case Doris names are resolved back to the remote Doris
-name during reads, so `SHOW SCHEMAS` and `SHOW TABLES` remain queryable from
-Trino. Objects that differ only by case are still not addressable separately
-because Trino normalizes identifiers to lowercase.
-
 ## SQL support
 
 The connector provides read access to Doris metadata and table data. In
@@ -182,6 +224,8 @@ non-OLAP tables are filtered from metadata listings.
 
 Write operations such as `INSERT`, `CREATE TABLE`, `DELETE`, `UPDATE`, and
 `MERGE` are not supported.
+
+Join pushdown and passthrough SQL are not supported.
 
 ## Performance
 
@@ -198,7 +242,8 @@ Trino's cost-based optimizer choose better plans.
 The connector supports pushdown for a number of operations:
 
 - projection
-- predicate filters on supported types
+- predicate filters on supported boolean, integer, decimal, date, short
+  timestamp, character, and varchar types
 - {ref}`limit-pushdown`
 - {ref}`topn-pushdown`
 
@@ -214,13 +259,18 @@ functions:
 `COUNT(DISTINCT ...)` pushdown is supported for character, integer, decimal,
 date, timestamp, and boolean columns.
 
-Pushdown stays conservative for correctness. For example:
+Simple widening casts introduced by Trino's planner are recognized for `AVG`
+pushdown, such as averaging an integer expression widened to `BIGINT` or
+`DOUBLE`.
 
-- Real-valued predicate domains are evaluated in Trino.
-- Character `min` and `max` aggregations are evaluated in Trino.
-- Unsupported types fall back to Trino execution or textual reads.
+Pushdown stays conservative for correctness. For example, the following still
+run in Trino:
 
-
+- Filters on `REAL` and `DOUBLE` domains.
+- `min` and `max` over character data.
+- Aggregates with `FILTER`, `ORDER BY`, or unsupported distinct shapes.
+- Joins.
+- Reads from unsupported complex Doris types.
 
 ## Doris and MySQL connectors
 
@@ -230,7 +280,8 @@ important ways:
 
 - It uses Doris FE query planning plus Arrow Flight SQL for reads instead of
   the generic MySQL JDBC path.
-- It is currently read-only and tuned for Doris-specific pushdown behavior.
+- It is currently read-only and tuned for Doris-specific metadata handling,
+  case resolution, and pushdown behavior.
 
 Use the Doris connector when you want Doris-native read planning and Flight SQL
 execution. Use the MySQL connector only if you specifically need generic

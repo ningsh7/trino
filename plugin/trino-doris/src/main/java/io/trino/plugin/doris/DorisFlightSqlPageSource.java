@@ -36,7 +36,6 @@ public class DorisFlightSqlPageSource
     private long completedPositions;
     private long readTimeNanos;
     private boolean finished;
-    private LoadedPage nextPage;
 
     public DorisFlightSqlPageSource(DorisFlightSqlResult result, DorisArrowToPageConverter converter, List<DorisColumnHandle> columns)
     {
@@ -79,17 +78,11 @@ public class DorisFlightSqlPageSource
             return null;
         }
 
-        if (nextPage == null) {
-            nextPage = loadNextPage();
-            if (nextPage == null) {
-                finished = true;
-                return null;
-            }
+        LoadedPage currentPage = loadNextPage();
+        if (currentPage == null) {
+            finished = true;
+            return null;
         }
-
-        LoadedPage currentPage = nextPage;
-        nextPage = loadNextPage();
-        finished = nextPage == null;
 
         completedPositions += currentPage.positionCount();
         completedBytes += currentPage.completedBytes();
@@ -107,7 +100,6 @@ public class DorisFlightSqlPageSource
     public void close()
     {
         finished = true;
-        nextPage = null;
         result.close();
     }
 
