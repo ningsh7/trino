@@ -39,8 +39,10 @@ public class JdbcDorisMetadataClient
             """;
     private static final String READABLE_TABLES_PREDICATE = """
             LOWER(TABLE_SCHEMA) NOT IN ('information_schema', '__internal_schema', 'mysql')
-                AND TABLE_TYPE = 'BASE TABLE'
-                AND UPPER(COALESCE(ENGINE, '')) IN ('OLAP', 'DORIS')
+                AND (
+                    (TABLE_TYPE = 'BASE TABLE' AND UPPER(COALESCE(ENGINE, '')) IN ('OLAP', 'DORIS'))
+                    OR TABLE_TYPE = 'VIEW'
+                )
             """;
     private static final String LIST_SCHEMAS_SQL = """
             SELECT SCHEMA_NAME
@@ -49,20 +51,20 @@ public class JdbcDorisMetadataClient
             ORDER BY SCHEMA_NAME
             """;
     private static final String LIST_ALL_TABLES_SQL = """
-            SELECT TABLE_SCHEMA, TABLE_NAME
+            SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
             FROM INFORMATION_SCHEMA.TABLES
             WHERE %s
             ORDER BY TABLE_SCHEMA, TABLE_NAME
             """;
     private static final String LIST_TABLES_IN_SCHEMA_SQL = """
-            SELECT TABLE_SCHEMA, TABLE_NAME
+            SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
             FROM INFORMATION_SCHEMA.TABLES
             WHERE %s
               AND LOWER(TABLE_SCHEMA) = LOWER(?)
             ORDER BY TABLE_SCHEMA, TABLE_NAME
             """;
     private static final String RESOLVE_TABLE_SQL = """
-            SELECT TABLE_SCHEMA, TABLE_NAME
+            SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
             FROM INFORMATION_SCHEMA.TABLES
             WHERE %s
               AND LOWER(TABLE_SCHEMA) = LOWER(?)
@@ -171,6 +173,7 @@ public class JdbcDorisMetadataClient
                 tableName,
                 remoteTable.schemaName(),
                 remoteTable.tableName(),
+                remoteTable.relationType(),
                 columns));
     }
 
@@ -222,7 +225,8 @@ public class JdbcDorisMetadataClient
                 while (resultSet.next()) {
                     matches.add(new ResolvedTable(
                             resultSet.getString("TABLE_SCHEMA"),
-                            resultSet.getString("TABLE_NAME")));
+                            resultSet.getString("TABLE_NAME"),
+                            toRelationType(resultSet.getString("TABLE_TYPE"))));
                 }
 
                 if (matches.isEmpty()) {
@@ -288,7 +292,15 @@ public class JdbcDorisMetadataClient
         return Optional.of(value);
     }
 
-    private record ResolvedTable(String schemaName, String tableName)
+    private static DorisRelationType toRelationType(String tableType)
+    {
+        if ("VIEW".equalsIgnoreCase(tableType)) {
+            return DorisRelationType.VIEW;
+        }
+        return DorisRelationType.TABLE;
+    }
+
+    private record ResolvedTable(String schemaName, String tableName, DorisRelationType relationType)
     {
         private SchemaTableName toSchemaTableName()
         {

@@ -58,15 +58,20 @@ final class TestJdbcDorisMetadataClient
         List<String> boundParameters = new ArrayList<>();
         JdbcDorisMetadataClient client = new JdbcDorisMetadataClient(connectionFactory(
                 preparedSql,
-                List.of(Map.of("TABLE_SCHEMA", "Test", "TABLE_NAME", "Nation")),
+                List.of(
+                        Map.of("TABLE_SCHEMA", "Test", "TABLE_NAME", "Nation", "TABLE_TYPE", "BASE TABLE"),
+                        Map.of("TABLE_SCHEMA", "Test", "TABLE_NAME", "Revenue0", "TABLE_TYPE", "VIEW")),
                 boundParameters));
 
         assertThat(client.listTables(Optional.of("test")))
-                .containsExactly(new SchemaTableName("Test", "Nation"));
+                .containsExactly(
+                        new SchemaTableName("Test", "Nation"),
+                        new SchemaTableName("Test", "Revenue0"));
         assertThat(boundParameters).containsExactly("test");
         assertThat(preparedSql.get())
                 .contains("LOWER(TABLE_SCHEMA) NOT IN ('information_schema', '__internal_schema', 'mysql')")
-                .contains("UPPER(COALESCE(ENGINE, '')) IN ('OLAP', 'DORIS')");
+                .contains("(TABLE_TYPE = 'BASE TABLE' AND UPPER(COALESCE(ENGINE, '')) IN ('OLAP', 'DORIS'))")
+                .contains("OR TABLE_TYPE = 'VIEW'");
     }
 
     @Test
@@ -107,6 +112,37 @@ final class TestJdbcDorisMetadataClient
         assertThat(preparedSql.get(1)).contains("LOWER(TABLE_SCHEMA) = LOWER(?) AND LOWER(TABLE_NAME) = LOWER(?)");
         assertThat(boundParameters.get(0)).containsExactly("mixedcase_db", "orderevents_mix");
         assertThat(boundParameters.get(1)).containsExactly("mixedcase_db", "orderevents_mix");
+    }
+
+    @Test
+    void testGetTableMarksViewsAsViews()
+    {
+        JdbcDorisMetadataClient client = new JdbcDorisMetadataClient(scriptedConnectionFactory(
+                new ArrayList<>(),
+                new ArrayList<>(),
+                List.of(
+                        List.of(row("TABLE_SCHEMA", "tpch", "TABLE_NAME", "revenue0", "TABLE_TYPE", "VIEW")),
+                        List.of(
+                                row(
+                                        "COLUMN_NAME", "supplier_no",
+                                        "DATA_TYPE", "BIGINT",
+                                        "COLUMN_SIZE", 20,
+                                        "DECIMAL_DIGITS", null,
+                                        "ORDINAL_POSITION", 1,
+                                        "COLUMN_TYPE", "BIGINT"),
+                                row(
+                                        "COLUMN_NAME", "total_revenue",
+                                        "DATA_TYPE", "DECIMAL",
+                                        "COLUMN_SIZE", 15,
+                                        "DECIMAL_DIGITS", 4,
+                                        "ORDINAL_POSITION", 2,
+                                        "COLUMN_TYPE", "DECIMAL(15,4)")))));
+
+        DorisRemoteTable remoteTable = client.getTable(new SchemaTableName("tpch", "revenue0")).orElseThrow();
+
+        assertThat(remoteTable.relationType()).isEqualTo(DorisRelationType.VIEW);
+        assertThat(remoteTable.columns()).extracting(DorisRemoteColumn::columnName)
+                .containsExactly("supplier_no", "total_revenue");
     }
 
     private static DorisJdbcConnectionFactory connectionFactory(AtomicReference<String> preparedSql, List<Map<String, Object>> rows, List<String> boundParameters)

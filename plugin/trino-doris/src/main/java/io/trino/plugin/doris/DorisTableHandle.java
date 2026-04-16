@@ -30,6 +30,7 @@ public record DorisTableHandle(
         String tableName,
         String remoteSchemaName,
         String remoteTableName,
+        DorisRelationType relationType,
         TupleDomain<ColumnHandle> constraint,
         Optional<List<DorisColumnHandle>> projectedColumns,
         Optional<List<DorisColumnHandle>> groupingColumns,
@@ -40,12 +41,17 @@ public record DorisTableHandle(
 {
     public DorisTableHandle(String schemaName, String tableName)
     {
-        this(schemaName, tableName, schemaName, tableName);
+        this(schemaName, tableName, schemaName, tableName, DorisRelationType.TABLE);
     }
 
     public DorisTableHandle(String schemaName, String tableName, String remoteSchemaName, String remoteTableName)
     {
-        this(schemaName, tableName, remoteSchemaName, remoteTableName, TupleDomain.all(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), OptionalLong.empty());
+        this(schemaName, tableName, remoteSchemaName, remoteTableName, DorisRelationType.TABLE);
+    }
+
+    public DorisTableHandle(String schemaName, String tableName, String remoteSchemaName, String remoteTableName, DorisRelationType relationType)
+    {
+        this(schemaName, tableName, remoteSchemaName, remoteTableName, relationType, TupleDomain.all(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), OptionalLong.empty());
     }
 
     public DorisTableHandle(
@@ -55,7 +61,7 @@ public record DorisTableHandle(
             Optional<List<DorisColumnHandle>> projectedColumns,
             OptionalLong limit)
     {
-        this(schemaName, tableName, schemaName, tableName, constraint, projectedColumns, Optional.empty(), Optional.empty(), Optional.empty(), limit);
+        this(schemaName, tableName, schemaName, tableName, DorisRelationType.TABLE, constraint, projectedColumns, Optional.empty(), Optional.empty(), Optional.empty(), limit);
     }
 
     public DorisTableHandle
@@ -64,6 +70,7 @@ public record DorisTableHandle(
         requireNonNull(tableName, "tableName is null");
         requireNonNull(remoteSchemaName, "remoteSchemaName is null");
         requireNonNull(remoteTableName, "remoteTableName is null");
+        requireNonNull(relationType, "relationType is null");
         constraint = requireNonNull(constraint, "constraint is null");
         projectedColumns = requireNonNull(projectedColumns, "projectedColumns is null")
                 .map(List::copyOf);
@@ -78,12 +85,12 @@ public record DorisTableHandle(
 
     public DorisTableHandle withConstraint(TupleDomain<ColumnHandle> newConstraint)
     {
-        return new DorisTableHandle(schemaName, tableName, remoteSchemaName, remoteTableName, newConstraint, projectedColumns, groupingColumns, aggregations, sortOrder, limit);
+        return new DorisTableHandle(schemaName, tableName, remoteSchemaName, remoteTableName, relationType, newConstraint, projectedColumns, groupingColumns, aggregations, sortOrder, limit);
     }
 
     public DorisTableHandle withProjectedColumns(List<DorisColumnHandle> newProjectedColumns)
     {
-        return new DorisTableHandle(schemaName, tableName, remoteSchemaName, remoteTableName, constraint, Optional.of(List.copyOf(newProjectedColumns)), groupingColumns, aggregations, sortOrder, limit);
+        return new DorisTableHandle(schemaName, tableName, remoteSchemaName, remoteTableName, relationType, constraint, Optional.of(List.copyOf(newProjectedColumns)), groupingColumns, aggregations, sortOrder, limit);
     }
 
     public DorisTableHandle withAggregations(List<DorisAggregation> newAggregations)
@@ -98,6 +105,7 @@ public record DorisTableHandle(
                 tableName,
                 remoteSchemaName,
                 remoteTableName,
+                relationType,
                 constraint,
                 Optional.empty(),
                 Optional.of(List.copyOf(newGroupingColumns)),
@@ -113,6 +121,7 @@ public record DorisTableHandle(
                 tableName,
                 remoteSchemaName,
                 remoteTableName,
+                relationType,
                 constraint,
                 projectedColumns,
                 groupingColumns,
@@ -123,7 +132,7 @@ public record DorisTableHandle(
 
     public DorisTableHandle withLimit(long newLimit)
     {
-        return new DorisTableHandle(schemaName, tableName, remoteSchemaName, remoteTableName, constraint, projectedColumns, groupingColumns, aggregations, sortOrder, OptionalLong.of(newLimit));
+        return new DorisTableHandle(schemaName, tableName, remoteSchemaName, remoteTableName, relationType, constraint, projectedColumns, groupingColumns, aggregations, sortOrder, OptionalLong.of(newLimit));
     }
 
     public List<DorisColumnHandle> aggregationColumns()

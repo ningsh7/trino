@@ -126,6 +126,28 @@ final class TestDorisMetadata
     }
 
     @Test
+    void testGetViewHandlePreservesViewRelationType()
+    {
+        DorisRemoteTable revenueView = new DorisRemoteTable(
+                new SchemaTableName("tpch", "revenue0"),
+                "tpch",
+                "revenue0",
+                DorisRelationType.VIEW,
+                List.of(
+                        new DorisRemoteColumn("supplier_no", "BIGINT", Optional.of(20), Optional.empty(), 1),
+                        new DorisRemoteColumn("total_revenue", "DECIMAL", Optional.of(15), Optional.of(4), 2)));
+        DorisMetadata viewMetadata = new DorisMetadata(
+                new TestingDorisMetadataClient(List.of(revenueView)),
+                new DorisTypeMapper(new DorisConfig()),
+                new DorisFilterToSql());
+
+        DorisTableHandle tableHandle = (DorisTableHandle) viewMetadata.getTableHandle(SESSION, revenueView.schemaTableName(), Optional.empty(), Optional.empty());
+
+        assertThat(tableHandle.relationType()).isEqualTo(DorisRelationType.VIEW);
+        assertThat(tableHandle.remoteTableName()).isEqualTo("revenue0");
+    }
+
+    @Test
     void testGetColumnHandlesAndListTableColumns()
     {
         Map<String, ColumnHandle> columnHandles = metadata.getColumnHandles(SESSION, new DorisTableHandle("ops", "events"));
