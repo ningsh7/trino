@@ -112,7 +112,8 @@ public class DorisMetadata
                         tableName.getSchemaName(),
                         tableName.getTableName(),
                         remoteTable.remoteSchemaName(),
-                        remoteTable.remoteTableName()))
+                        remoteTable.remoteTableName(),
+                        remoteTable.relationType()))
                 .orElse(null);
     }
 
