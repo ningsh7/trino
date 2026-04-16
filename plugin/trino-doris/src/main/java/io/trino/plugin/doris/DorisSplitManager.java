@@ -52,8 +52,10 @@ public class DorisSplitManager
             return new FixedSplitSource(List.of());
         }
 
-        if (dorisTableHandle.aggregations().isPresent() || dorisTableHandle.sortOrder().isPresent()) {
-            // Doris must execute pushed aggregates and global TopN exactly once.
+        if (dorisTableHandle.relationType() == DorisRelationType.VIEW
+                || dorisTableHandle.aggregations().isPresent()
+                || dorisTableHandle.sortOrder().isPresent()) {
+            // Views, pushed aggregates, and global TopN must execute as a single remote query.
             return new FixedSplitSource(List.of(new DorisSplit(
                     dorisTableHandle.remoteSchemaName(),
                     dorisTableHandle.remoteTableName(),

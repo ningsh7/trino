@@ -79,4 +79,29 @@ final class TestDorisSplitManager
         assertThat(batch.getSplits()).hasSize(1);
         assertThat(((DorisSplit) batch.getSplits().getFirst()).getAddresses()).isEmpty();
     }
+
+    @Test
+    void testViewUsesSingleSyntheticSplit()
+            throws Exception
+    {
+        AtomicInteger plannerCalls = new AtomicInteger();
+        DorisSplitManager splitManager = new DorisSplitManager(tableHandle -> {
+            plannerCalls.incrementAndGet();
+            return List.of();
+        });
+
+        DorisTableHandle tableHandle = new DorisTableHandle("tpch", "revenue0", "tpch", "revenue0", DorisRelationType.VIEW);
+
+        ConnectorSplitSource splitSource = splitManager.getSplits(
+                DorisTransactionHandle.INSTANCE,
+                SESSION,
+                tableHandle,
+                DynamicFilter.EMPTY,
+                new Constraint(tableHandle.constraint()));
+
+        ConnectorSplitSource.ConnectorSplitBatch batch = splitSource.getNextBatch(10).get();
+        assertThat(plannerCalls.get()).isEqualTo(0);
+        assertThat(batch.getSplits()).hasSize(1);
+        assertThat(((DorisSplit) batch.getSplits().getFirst()).getAddresses()).isEmpty();
+    }
 }

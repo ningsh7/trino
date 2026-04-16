@@ -24,11 +24,21 @@ public record DorisRemoteTable(
         SchemaTableName schemaTableName,
         String remoteSchemaName,
         String remoteTableName,
+        DorisRelationType relationType,
         List<DorisRemoteColumn> columns)
 {
     public DorisRemoteTable(SchemaTableName schemaTableName, List<DorisRemoteColumn> columns)
     {
-        this(schemaTableName, schemaTableName.getSchemaName(), schemaTableName.getTableName(), columns);
+        this(schemaTableName, schemaTableName.getSchemaName(), schemaTableName.getTableName(), DorisRelationType.TABLE, columns);
+    }
+
+    public DorisRemoteTable(
+            SchemaTableName schemaTableName,
+            String remoteSchemaName,
+            String remoteTableName,
+            List<DorisRemoteColumn> columns)
+    {
+        this(schemaTableName, remoteSchemaName, remoteTableName, DorisRelationType.TABLE, columns);
     }
 
     public DorisRemoteTable
@@ -36,6 +46,7 @@ public record DorisRemoteTable(
         requireNonNull(schemaTableName, "schemaTableName is null");
         requireNonNull(remoteSchemaName, "remoteSchemaName is null");
         requireNonNull(remoteTableName, "remoteTableName is null");
+        requireNonNull(relationType, "relationType is null");
         requireNonNull(columns, "columns is null");
 
         // Doris information_schema ordinals are 1-based. Sorting once keeps downstream handle creation deterministic.
