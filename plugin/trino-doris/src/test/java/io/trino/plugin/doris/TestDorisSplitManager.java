@@ -16,6 +16,7 @@ package io.trino.plugin.doris;
 import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.Constraint;
 import io.trino.spi.connector.DynamicFilter;
+import io.trino.spi.connector.SortOrder;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -65,7 +66,7 @@ final class TestDorisSplitManager
         });
 
         DorisTableHandle tableHandle = new DorisTableHandle("sales", "orders")
-                .withTopN(List.of(new DorisSortItem(new DorisColumnHandle("id", BIGINT, 0), io.trino.spi.connector.SortOrder.DESC_NULLS_LAST)), 10);
+                .withTopN(List.of(new DorisSortItem(new DorisColumnHandle("id", BIGINT, 0), SortOrder.DESC_NULLS_LAST)), 10);
 
         ConnectorSplitSource splitSource = splitManager.getSplits(
                 DorisTransactionHandle.INSTANCE,

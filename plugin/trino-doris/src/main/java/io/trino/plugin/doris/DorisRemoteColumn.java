@@ -30,12 +30,19 @@ public record DorisRemoteColumn(
         this(columnName, dataType, columnSize, decimalDigits, ordinalPosition, Optional.empty());
     }
 
-    public DorisRemoteColumn
+    public DorisRemoteColumn(
+            String columnName,
+            String dataType,
+            Optional<Integer> columnSize,
+            Optional<Integer> decimalDigits,
+            int ordinalPosition,
+            Optional<String> typeDefinition)
     {
-        requireNonNull(columnName, "columnName is null");
-        requireNonNull(dataType, "dataType is null");
-        columnSize = requireNonNull(columnSize, "columnSize is null");
-        decimalDigits = requireNonNull(decimalDigits, "decimalDigits is null");
-        typeDefinition = requireNonNull(typeDefinition, "typeDefinition is null");
+        this.columnName = requireNonNull(columnName, "columnName is null");
+        this.dataType = requireNonNull(dataType, "dataType is null");
+        this.columnSize = requireNonNull(columnSize, "columnSize is null");
+        this.decimalDigits = requireNonNull(decimalDigits, "decimalDigits is null");
+        this.ordinalPosition = ordinalPosition;
+        this.typeDefinition = requireNonNull(typeDefinition, "typeDefinition is null");
     }
 }

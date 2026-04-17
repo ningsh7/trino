@@ -13,6 +13,7 @@
  */
 package io.trino.plugin.doris;
 
+import io.airlift.slice.SizeOf;
 import io.trino.spi.HostAddress;
 import io.trino.spi.connector.ConnectorSplit;
 
@@ -34,13 +35,18 @@ public record DorisSplit(
 {
     private static final int INSTANCE_SIZE = instanceSize(DorisSplit.class);
 
-    public DorisSplit
+    public DorisSplit(
+            String schemaName,
+            String tableName,
+            String beAddress,
+            List<Long> tabletIds,
+            Optional<String> opaquedQueryPlan)
     {
-        requireNonNull(schemaName, "schemaName is null");
-        requireNonNull(tableName, "tableName is null");
-        requireNonNull(beAddress, "beAddress is null");
-        tabletIds = List.copyOf(requireNonNull(tabletIds, "tabletIds is null"));
-        opaquedQueryPlan = requireNonNull(opaquedQueryPlan, "opaquedQueryPlan is null");
+        this.schemaName = requireNonNull(schemaName, "schemaName is null");
+        this.tableName = requireNonNull(tableName, "tableName is null");
+        this.beAddress = requireNonNull(beAddress, "beAddress is null");
+        this.tabletIds = List.copyOf(requireNonNull(tabletIds, "tabletIds is null"));
+        this.opaquedQueryPlan = requireNonNull(opaquedQueryPlan, "opaquedQueryPlan is null");
     }
 
     @Override
@@ -60,6 +66,6 @@ public record DorisSplit(
                 + estimatedSizeOf(tableName)
                 + estimatedSizeOf(beAddress)
                 + estimatedSizeOf(tabletIds, ignored -> Long.BYTES)
-                + sizeOf(opaquedQueryPlan, io.airlift.slice.SizeOf::estimatedSizeOf);
+                + sizeOf(opaquedQueryPlan, SizeOf::estimatedSizeOf);
     }
 }

@@ -64,6 +64,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -403,7 +404,7 @@ public class DorisMetadata
         onQueryEvent(listener -> listener.cleanupQuery(session), "Doris query cleanup failed");
     }
 
-    private void onQueryEvent(java.util.function.Consumer<DorisQueryEventListener> listenerConsumer, String errorMessage)
+    private void onQueryEvent(Consumer<DorisQueryEventListener> listenerConsumer, String errorMessage)
     {
         List<RuntimeException> failures = new ArrayList<>();
         for (DorisQueryEventListener listener : queryEventListeners) {

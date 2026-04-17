@@ -16,6 +16,8 @@ package io.trino.plugin.doris;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 final class TestDorisQueryPlanResponse
@@ -45,6 +47,6 @@ final class TestDorisQueryPlanResponse
         assertThat(response.status()).isEqualTo(200);
         assertThat(response.opaquedQueryPlan()).isEqualTo("opaque-plan");
         assertThat(response.partitions().get("13989"))
-                .isEqualTo(new DorisQueryPlanTablet(java.util.List.of("10.0.0.1:9060")));
+                .isEqualTo(new DorisQueryPlanTablet(List.of("10.0.0.1:9060")));
     }
 }

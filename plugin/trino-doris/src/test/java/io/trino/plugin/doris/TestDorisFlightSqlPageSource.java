@@ -16,6 +16,7 @@ package io.trino.plugin.doris;
 import io.trino.spi.connector.SourcePage;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.api.Test;
@@ -159,7 +160,7 @@ final class TestDorisFlightSqlPageSource
         {
             return roots.stream()
                     .flatMap(root -> root.getFieldVectors().stream())
-                    .mapToLong(org.apache.arrow.vector.FieldVector::getBufferSize)
+                    .mapToLong(FieldVector::getBufferSize)
                     .sum();
         }
 

@@ -53,7 +53,6 @@ public final class EnvMultinodeDoris
     private static final String BE_START_SCRIPT = CONTAINER_CONFIG_DIR + "/run-doris-be.sh";
 
     private static final int FE_HTTP_PORT = 8030;
-    private static final int FE_EDIT_LOG_PORT = 9010;
     private static final int FE_QUERY_PORT = 9030;
     private static final int FE_FLIGHT_SQL_PORT = 9040;
     private static final int BE_WEB_PORT = 8040;

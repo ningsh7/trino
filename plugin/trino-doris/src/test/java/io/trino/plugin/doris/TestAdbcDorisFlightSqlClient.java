@@ -275,7 +275,7 @@ final class TestAdbcDorisFlightSqlClient
             implements DorisFlightSqlResult
     {
         private final TestingFlightSqlStreamOpener opener;
-        private boolean closed;
+        private final AtomicBoolean closed = new AtomicBoolean();
 
         private TestingDorisFlightSqlResult(TestingFlightSqlStreamOpener opener)
         {
@@ -297,13 +297,14 @@ final class TestAdbcDorisFlightSqlClient
         @Override
         public long getMemoryUsage()
         {
+            assertThat(closed.get()).isFalse();
             return opener.getMemoryUsage();
         }
 
         @Override
         public void close()
         {
-            closed = true;
+            closed.set(true);
         }
     }
 }

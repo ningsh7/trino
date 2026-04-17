@@ -97,7 +97,7 @@ final class TestFeDorisSplitPlanner
     {
         DorisConfig config = new DorisConfig().setMaxSplitsPerQuery(2);
         DorisQueryBuilder queryBuilder = new DorisQueryBuilder();
-        FeDorisSplitPlanner planner = new FeDorisSplitPlanner(config, queryBuilder);
+        new FeDorisSplitPlanner(config, queryBuilder);
 
         DorisTableHandle tableHandle = new DorisTableHandle("test_db", "test_table");
         DorisQueryPlanResponse queryPlan = new DorisQueryPlanResponse(
@@ -127,7 +127,7 @@ final class TestFeDorisSplitPlanner
                 .setMaxSplitsPerQuery(10)
                 .setMinTabletsPerSplit(2);
         DorisQueryBuilder queryBuilder = new DorisQueryBuilder();
-        FeDorisSplitPlanner planner = new FeDorisSplitPlanner(config, queryBuilder);
+        new FeDorisSplitPlanner(config, queryBuilder);
 
         DorisTableHandle tableHandle = new DorisTableHandle("test_db", "test_table");
         DorisQueryPlanResponse queryPlan = new DorisQueryPlanResponse(

@@ -19,8 +19,10 @@ import io.trino.spi.type.CharType;
 import io.trino.spi.type.Type;
 import io.trino.spi.type.VarcharType;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -225,7 +227,7 @@ public class DorisTypeMapper
             return List.of();
         }
 
-        return java.util.Arrays.stream(typeDeclaration.substring(parametersStart + 1, parametersEnd).split(","))
+        return Arrays.stream(typeDeclaration.substring(parametersStart + 1, parametersEnd).split(","))
                 .map(String::trim)
                 .filter(value -> !value.isEmpty())
                 .map(value -> {
@@ -236,7 +238,7 @@ public class DorisTypeMapper
                         return null;
                     }
                 })
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .toList();
     }
 }

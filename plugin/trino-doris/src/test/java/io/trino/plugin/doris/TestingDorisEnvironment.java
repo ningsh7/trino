@@ -51,13 +51,16 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.BooleanType.BOOLEAN;
@@ -204,7 +207,7 @@ final class TestingDorisEnvironment
             columns = List.copyOf(requireNonNull(columns, "columns is null"));
             rows = List.copyOf(requireNonNull(rows, "rows is null").stream()
                     .map(LinkedHashMap::new)
-                    .map(java.util.Collections::unmodifiableMap)
+                    .map(Collections::unmodifiableMap)
                     .toList());
         }
 
@@ -346,7 +349,7 @@ final class TestingDorisEnvironment
             RootAllocator allocator = new RootAllocator(Long.MAX_VALUE);
             List<FieldVector> vectors = new ArrayList<>(columns.size());
             Map<String, DorisRemoteColumn> remoteColumns = table == null ? Map.of() : table.columns().stream()
-                    .collect(java.util.stream.Collectors.toUnmodifiableMap(DorisRemoteColumn::columnName, column -> column));
+                    .collect(Collectors.toUnmodifiableMap(DorisRemoteColumn::columnName, column -> column));
 
             try {
                 for (DorisColumnHandle column : columns) {
@@ -817,7 +820,7 @@ final class TestingDorisEnvironment
         private static String normalizeTypeName(String dataType)
         {
             return dataType.trim()
-                    .toUpperCase(java.util.Locale.ENGLISH)
+                    .toUpperCase(Locale.ENGLISH)
                     .replace(' ', '_');
         }
     }
