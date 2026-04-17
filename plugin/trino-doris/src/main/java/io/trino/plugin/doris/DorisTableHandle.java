@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -64,23 +65,34 @@ public record DorisTableHandle(
         this(schemaName, tableName, schemaName, tableName, DorisRelationType.TABLE, constraint, projectedColumns, Optional.empty(), Optional.empty(), Optional.empty(), limit);
     }
 
-    public DorisTableHandle
+    public DorisTableHandle(
+            String schemaName,
+            String tableName,
+            String remoteSchemaName,
+            String remoteTableName,
+            DorisRelationType relationType,
+            TupleDomain<ColumnHandle> constraint,
+            Optional<List<DorisColumnHandle>> projectedColumns,
+            Optional<List<DorisColumnHandle>> groupingColumns,
+            Optional<List<DorisAggregation>> aggregations,
+            Optional<List<DorisSortItem>> sortOrder,
+            OptionalLong limit)
     {
-        requireNonNull(schemaName, "schemaName is null");
-        requireNonNull(tableName, "tableName is null");
-        requireNonNull(remoteSchemaName, "remoteSchemaName is null");
-        requireNonNull(remoteTableName, "remoteTableName is null");
-        requireNonNull(relationType, "relationType is null");
-        constraint = requireNonNull(constraint, "constraint is null");
-        projectedColumns = requireNonNull(projectedColumns, "projectedColumns is null")
+        this.schemaName = requireNonNull(schemaName, "schemaName is null");
+        this.tableName = requireNonNull(tableName, "tableName is null");
+        this.remoteSchemaName = requireNonNull(remoteSchemaName, "remoteSchemaName is null");
+        this.remoteTableName = requireNonNull(remoteTableName, "remoteTableName is null");
+        this.relationType = requireNonNull(relationType, "relationType is null");
+        this.constraint = requireNonNull(constraint, "constraint is null");
+        this.projectedColumns = requireNonNull(projectedColumns, "projectedColumns is null")
                 .map(List::copyOf);
-        groupingColumns = requireNonNull(groupingColumns, "groupingColumns is null")
+        this.groupingColumns = requireNonNull(groupingColumns, "groupingColumns is null")
                 .map(List::copyOf);
-        aggregations = requireNonNull(aggregations, "aggregations is null")
+        this.aggregations = requireNonNull(aggregations, "aggregations is null")
                 .map(List::copyOf);
-        sortOrder = requireNonNull(sortOrder, "sortOrder is null")
+        this.sortOrder = requireNonNull(sortOrder, "sortOrder is null")
                 .map(List::copyOf);
-        requireNonNull(limit, "limit is null");
+        this.limit = requireNonNull(limit, "limit is null");
     }
 
     public DorisTableHandle withConstraint(TupleDomain<ColumnHandle> newConstraint)
@@ -153,7 +165,7 @@ public record DorisTableHandle(
             return projectedColumns.orElse(List.of());
         }
 
-        return java.util.stream.Stream.concat(
+        return Stream.concat(
                         groupingColumns.orElse(List.of()).stream(),
                         aggregationColumns().stream())
                 .toList();

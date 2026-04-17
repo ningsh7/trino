@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
@@ -179,9 +180,9 @@ public class DorisQueryBuilder
                     String columnSorting = column + " " + ordering;
 
                     return switch (sortItem.sortOrder()) {
-                        case ASC_NULLS_FIRST, DESC_NULLS_LAST -> java.util.stream.Stream.of(columnSorting);
-                        case ASC_NULLS_LAST -> java.util.stream.Stream.of("ISNULL(" + column + ") ASC", columnSorting);
-                        case DESC_NULLS_FIRST -> java.util.stream.Stream.of("ISNULL(" + column + ") DESC", columnSorting);
+                        case ASC_NULLS_FIRST, DESC_NULLS_LAST -> Stream.of(columnSorting);
+                        case ASC_NULLS_LAST -> Stream.of("ISNULL(" + column + ") ASC", columnSorting);
+                        case DESC_NULLS_FIRST -> Stream.of("ISNULL(" + column + ") DESC", columnSorting);
                     };
                 })
                 .collect(joining(", "));

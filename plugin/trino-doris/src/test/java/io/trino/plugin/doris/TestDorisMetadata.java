@@ -157,8 +157,7 @@ final class TestDorisMetadata
 
         Map<SchemaTableName, List<ColumnMetadata>> tableColumns = metadata.listTableColumns(SESSION, new SchemaTablePrefix("sales"));
         assertThat(tableColumns).isEqualTo(Map.of(
-                ORDERS.schemaTableName(),
-                List.of(
+                ORDERS.schemaTableName(), List.of(
                         new ColumnMetadata("id", BIGINT),
                         new ColumnMetadata("event_time", createTimestampType(6)),
                         new ColumnMetadata("payload", createUnboundedVarcharType()),

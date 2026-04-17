@@ -16,6 +16,7 @@ package io.trino.plugin.doris;
 import io.trino.spi.connector.SourcePage;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.junit.jupiter.api.Test;
@@ -23,7 +24,9 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
+import static io.trino.spi.connector.MemoryContext.NO_LIMIT;
 import static io.trino.spi.type.BigintType.BIGINT;
 import static io.trino.spi.type.VarcharType.createVarcharType;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -34,6 +37,7 @@ final class TestDorisFlightSqlPageSource
     @Test
     void testPageSourceSkipsEmptyBatchesAndReadsRows()
     {
+        AtomicLong memoryUsage = new AtomicLong();
         List<DorisColumnHandle> columns = List.of(
                 new DorisColumnHandle("id", BIGINT, 0),
                 new DorisColumnHandle("name", createVarcharType(20), 1));
@@ -79,7 +83,10 @@ final class TestDorisFlightSqlPageSource
             DorisFlightSqlPageSource pageSource = new DorisFlightSqlPageSource(
                     new TestingDorisFlightSqlResult(List.of(emptyRoot, firstBatchRoot, secondBatchRoot)),
                     new DorisArrowToPageConverter(),
-                    columns);
+                    columns,
+                    memoryUsage::set);
+
+            assertThat(memoryUsage.get()).isPositive();
 
             SourcePage firstPage = pageSource.getNextSourcePage();
 
@@ -98,6 +105,9 @@ final class TestDorisFlightSqlPageSource
 
             assertThat(pageSource.getNextSourcePage()).isNull();
             assertThat(pageSource.isFinished()).isTrue();
+
+            pageSource.close();
+            assertThat(memoryUsage.get()).isZero();
         }
     }
 
@@ -115,7 +125,7 @@ final class TestDorisFlightSqlPageSource
             root.setRowCount(1);
 
             TestingDorisFlightSqlResult result = new TestingDorisFlightSqlResult(List.of(root));
-            DorisFlightSqlPageSource pageSource = new DorisFlightSqlPageSource(result, new DorisArrowToPageConverter(), columns);
+            DorisFlightSqlPageSource pageSource = new DorisFlightSqlPageSource(result, new DorisArrowToPageConverter(), columns, NO_LIMIT);
 
             SourcePage firstPage = pageSource.getNextSourcePage();
 
@@ -159,7 +169,7 @@ final class TestDorisFlightSqlPageSource
         {
             return roots.stream()
                     .flatMap(root -> root.getFieldVectors().stream())
-                    .mapToLong(org.apache.arrow.vector.FieldVector::getBufferSize)
+                    .mapToLong(FieldVector::getBufferSize)
                     .sum();
         }
 

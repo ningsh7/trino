@@ -14,17 +14,18 @@
 package io.trino.plugin.doris;
 
 import com.google.inject.Inject;
+import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorSplitManager;
 import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.Constraint;
-import io.trino.spi.connector.DynamicFilter;
 import io.trino.spi.connector.FixedSplitSource;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -44,7 +45,7 @@ public class DorisSplitManager
             ConnectorTransactionHandle transactionHandle,
             ConnectorSession session,
             ConnectorTableHandle tableHandle,
-            DynamicFilter dynamicFilter,
+            Set<ColumnHandle> dynamicFilterColumns,
             Constraint constraint)
     {
         DorisTableHandle dorisTableHandle = (DorisTableHandle) tableHandle;

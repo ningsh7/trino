@@ -23,6 +23,7 @@ import io.trino.spi.connector.ConnectorTableCredentials;
 import io.trino.spi.connector.ConnectorTableHandle;
 import io.trino.spi.connector.ConnectorTransactionHandle;
 import io.trino.spi.connector.DynamicFilter;
+import io.trino.spi.connector.MemoryContext;
 
 import java.util.List;
 import java.util.Optional;
@@ -50,7 +51,8 @@ public class DorisPageSourceProvider
             ConnectorTableHandle table,
             Optional<ConnectorTableCredentials> tableCredentials,
             List<ColumnHandle> columns,
-            DynamicFilter dynamicFilter)
+            DynamicFilter dynamicFilter,
+            MemoryContext memoryContext)
     {
         DorisSplit dorisSplit = (DorisSplit) split;
         DorisTableHandle dorisTable = (DorisTableHandle) table;
@@ -61,6 +63,7 @@ public class DorisPageSourceProvider
         return new DorisFlightSqlPageSource(
                 flightSqlClient.openStream(session, dorisTable, dorisSplit, dorisColumns),
                 arrowToPageConverter,
-                dorisColumns);
+                dorisColumns,
+                memoryContext);
     }
 }

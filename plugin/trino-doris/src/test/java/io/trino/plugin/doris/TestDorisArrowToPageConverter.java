@@ -43,6 +43,7 @@ import java.math.BigInteger;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.Arrays;
 import java.util.List;
 
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -445,7 +446,7 @@ final class TestDorisArrowToPageConverter
         byte[] bytes = value.toByteArray();
         byte[] fixedBytes = new byte[16];
         if (value.signum() < 0) {
-            java.util.Arrays.fill(fixedBytes, (byte) 0xFF);
+            Arrays.fill(fixedBytes, (byte) 0xFF);
         }
         System.arraycopy(bytes, 0, fixedBytes, fixedBytes.length - bytes.length, bytes.length);
         for (int left = 0, right = fixedBytes.length - 1; left < right; left++, right--) {

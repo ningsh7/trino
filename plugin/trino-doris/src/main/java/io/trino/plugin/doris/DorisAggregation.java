@@ -26,13 +26,18 @@ public record DorisAggregation(
         Type outputType,
         Optional<String> sourceColumnName)
 {
-    public DorisAggregation
+    public DorisAggregation(
+            String outputColumnName,
+            String functionName,
+            String expression,
+            Type outputType,
+            Optional<String> sourceColumnName)
     {
-        requireNonNull(outputColumnName, "outputColumnName is null");
-        requireNonNull(functionName, "functionName is null");
-        requireNonNull(expression, "expression is null");
-        requireNonNull(outputType, "outputType is null");
-        sourceColumnName = requireNonNull(sourceColumnName, "sourceColumnName is null");
+        this.outputColumnName = requireNonNull(outputColumnName, "outputColumnName is null");
+        this.functionName = requireNonNull(functionName, "functionName is null");
+        this.expression = requireNonNull(expression, "expression is null");
+        this.outputType = requireNonNull(outputType, "outputType is null");
+        this.sourceColumnName = requireNonNull(sourceColumnName, "sourceColumnName is null");
     }
 
     public DorisColumnHandle toColumnHandle(int ordinalPosition)
