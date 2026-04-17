@@ -49,6 +49,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
@@ -367,7 +368,7 @@ public class DorisArrowToPageConverter
         if (timestampValue instanceof LocalDateTime localDateTime) {
             return toTrinoTimestampMicros(localDateTime);
         }
-        if (timestampValue instanceof java.time.OffsetDateTime offsetDateTime) {
+        if (timestampValue instanceof OffsetDateTime offsetDateTime) {
             return toTrinoTimestampMicros(offsetDateTime.toLocalDateTime());
         }
         if (timeZone != null && !timeZone.isBlank()) {

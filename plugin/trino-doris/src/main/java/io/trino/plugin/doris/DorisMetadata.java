@@ -64,6 +64,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
@@ -256,7 +257,7 @@ public class DorisMetadata
             return Optional.empty();
         }
 
-        if (handle.limit().isPresent() && handle.limit().getAsLong() <= limit) {
+        if (handle.limit().isPresent() && handle.limit().orElseThrow() <= limit) {
             return Optional.empty();
         }
 
@@ -387,7 +388,7 @@ public class DorisMetadata
         }
 
         return TableStatistics.builder()
-                .setRowCount(Estimate.of(rowCount.getAsLong()))
+                .setRowCount(Estimate.of(rowCount.orElseThrow()))
                 .build();
     }
 
@@ -403,7 +404,7 @@ public class DorisMetadata
         onQueryEvent(listener -> listener.cleanupQuery(session), "Doris query cleanup failed");
     }
 
-    private void onQueryEvent(java.util.function.Consumer<DorisQueryEventListener> listenerConsumer, String errorMessage)
+    private void onQueryEvent(Consumer<DorisQueryEventListener> listenerConsumer, String errorMessage)
     {
         List<RuntimeException> failures = new ArrayList<>();
         for (DorisQueryEventListener listener : queryEventListeners) {

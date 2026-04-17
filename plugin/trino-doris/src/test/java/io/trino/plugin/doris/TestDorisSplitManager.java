@@ -13,13 +13,16 @@
  */
 package io.trino.plugin.doris;
 
+import io.trino.spi.connector.ConnectorSplit;
 import io.trino.spi.connector.ConnectorSplitSource;
 import io.trino.spi.connector.Constraint;
-import io.trino.spi.connector.DynamicFilter;
+import io.trino.spi.connector.DynamicFilterSnapshot;
+import io.trino.spi.connector.SortOrder;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -33,7 +36,7 @@ final class TestDorisSplitManager
             throws Exception
     {
         AtomicInteger plannerCalls = new AtomicInteger();
-        DorisSplitManager splitManager = new DorisSplitManager(tableHandle -> {
+        DorisSplitManager splitManager = new DorisSplitManager(_ -> {
             plannerCalls.incrementAndGet();
             return List.of();
         });
@@ -45,13 +48,13 @@ final class TestDorisSplitManager
                 DorisTransactionHandle.INSTANCE,
                 SESSION,
                 tableHandle,
-                DynamicFilter.EMPTY,
+                Set.of(),
                 new Constraint(tableHandle.constraint()));
 
-        ConnectorSplitSource.ConnectorSplitBatch batch = splitSource.getNextBatch(10).get();
+        List<ConnectorSplit> batch = splitSource.getNextBatch(10, DynamicFilterSnapshot.EMPTY).get();
         assertThat(plannerCalls.get()).isEqualTo(0);
-        assertThat(batch.getSplits()).hasSize(1);
-        assertThat(((DorisSplit) batch.getSplits().getFirst()).getAddresses()).isEmpty();
+        assertThat(batch).hasSize(1);
+        assertThat(((DorisSplit) batch.getFirst()).getAddresses()).isEmpty();
     }
 
     @Test
@@ -59,25 +62,25 @@ final class TestDorisSplitManager
             throws Exception
     {
         AtomicInteger plannerCalls = new AtomicInteger();
-        DorisSplitManager splitManager = new DorisSplitManager(tableHandle -> {
+        DorisSplitManager splitManager = new DorisSplitManager(_ -> {
             plannerCalls.incrementAndGet();
             return List.of();
         });
 
         DorisTableHandle tableHandle = new DorisTableHandle("sales", "orders")
-                .withTopN(List.of(new DorisSortItem(new DorisColumnHandle("id", BIGINT, 0), io.trino.spi.connector.SortOrder.DESC_NULLS_LAST)), 10);
+                .withTopN(List.of(new DorisSortItem(new DorisColumnHandle("id", BIGINT, 0), SortOrder.DESC_NULLS_LAST)), 10);
 
         ConnectorSplitSource splitSource = splitManager.getSplits(
                 DorisTransactionHandle.INSTANCE,
                 SESSION,
                 tableHandle,
-                DynamicFilter.EMPTY,
+                Set.of(),
                 new Constraint(tableHandle.constraint()));
 
-        ConnectorSplitSource.ConnectorSplitBatch batch = splitSource.getNextBatch(10).get();
+        List<ConnectorSplit> batch = splitSource.getNextBatch(10, DynamicFilterSnapshot.EMPTY).get();
         assertThat(plannerCalls.get()).isEqualTo(0);
-        assertThat(batch.getSplits()).hasSize(1);
-        assertThat(((DorisSplit) batch.getSplits().getFirst()).getAddresses()).isEmpty();
+        assertThat(batch).hasSize(1);
+        assertThat(((DorisSplit) batch.getFirst()).getAddresses()).isEmpty();
     }
 
     @Test
@@ -85,7 +88,7 @@ final class TestDorisSplitManager
             throws Exception
     {
         AtomicInteger plannerCalls = new AtomicInteger();
-        DorisSplitManager splitManager = new DorisSplitManager(tableHandle -> {
+        DorisSplitManager splitManager = new DorisSplitManager(_ -> {
             plannerCalls.incrementAndGet();
             return List.of();
         });
@@ -96,12 +99,12 @@ final class TestDorisSplitManager
                 DorisTransactionHandle.INSTANCE,
                 SESSION,
                 tableHandle,
-                DynamicFilter.EMPTY,
+                Set.of(),
                 new Constraint(tableHandle.constraint()));
 
-        ConnectorSplitSource.ConnectorSplitBatch batch = splitSource.getNextBatch(10).get();
+        List<ConnectorSplit> batch = splitSource.getNextBatch(10, DynamicFilterSnapshot.EMPTY).get();
         assertThat(plannerCalls.get()).isEqualTo(0);
-        assertThat(batch.getSplits()).hasSize(1);
-        assertThat(((DorisSplit) batch.getSplits().getFirst()).getAddresses()).isEmpty();
+        assertThat(batch).hasSize(1);
+        assertThat(((DorisSplit) batch.getFirst()).getAddresses()).isEmpty();
     }
 }

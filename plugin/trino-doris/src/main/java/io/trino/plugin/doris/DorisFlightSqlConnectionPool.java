@@ -21,6 +21,7 @@ import jakarta.annotation.PreDestroy;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -42,7 +43,7 @@ public class DorisFlightSqlConnectionPool
     {
         this.streamOpenerFactory = requireNonNull(streamOpenerFactory, "streamOpenerFactory is null");
         this.connectionCache = EvictableCacheBuilder.newBuilder()
-                .maximumSize(maxConnectionsPerEndpoint * 10) // Assume max 10 endpoints
+                .maximumSize(maxConnectionsPerEndpoint * 10L) // Assume max 10 endpoints
                 .expireAfterWrite(connectionIdleTimeout.toMillis(), TimeUnit.MILLISECONDS)
                 .shareNothingWhenDisabled()
                 .build();
@@ -111,14 +112,14 @@ public class DorisFlightSqlConnectionPool
     {
         private final ConnectionKey key;
         private final AdbcDorisFlightSqlClient.FlightSqlStreamOpener opener;
-        private final java.util.function.Consumer<PooledConnection> returnToPool;
+        private final Consumer<PooledConnection> returnToPool;
         private final AtomicBoolean inUse = new AtomicBoolean();
         private final AtomicBoolean closed = new AtomicBoolean();
 
         private PooledConnection(
                 ConnectionKey key,
                 AdbcDorisFlightSqlClient.FlightSqlStreamOpener opener,
-                java.util.function.Consumer<PooledConnection> returnToPool)
+                Consumer<PooledConnection> returnToPool)
         {
             this.key = requireNonNull(key, "key is null");
             this.opener = requireNonNull(opener, "opener is null");

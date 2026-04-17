@@ -15,6 +15,7 @@ package io.trino.plugin.doris;
 
 import io.trino.spi.PageBuilder;
 import io.trino.spi.connector.ConnectorPageSource;
+import io.trino.spi.connector.MemoryContext;
 import io.trino.spi.connector.SourcePage;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
@@ -31,13 +32,14 @@ public class DorisFlightSqlPageSource
     private final DorisArrowToPageConverter converter;
     private final List<DorisColumnHandle> columns;
     private final PageBuilder pageBuilder;
+    private final MemoryContext memoryContext;
 
     private long completedBytes;
     private long completedPositions;
     private long readTimeNanos;
     private boolean finished;
 
-    public DorisFlightSqlPageSource(DorisFlightSqlResult result, DorisArrowToPageConverter converter, List<DorisColumnHandle> columns)
+    public DorisFlightSqlPageSource(DorisFlightSqlResult result, DorisArrowToPageConverter converter, List<DorisColumnHandle> columns, MemoryContext memoryContext)
     {
         this.result = requireNonNull(result, "result is null");
         this.converter = requireNonNull(converter, "converter is null");
@@ -45,6 +47,8 @@ public class DorisFlightSqlPageSource
         this.pageBuilder = new PageBuilder(this.columns.stream()
                 .map(DorisColumnHandle::columnType)
                 .toList());
+        this.memoryContext = requireNonNull(memoryContext, "memoryContext is null");
+        reportMemoryUsage();
     }
 
     @Override
@@ -78,7 +82,13 @@ public class DorisFlightSqlPageSource
             return null;
         }
 
-        LoadedPage currentPage = loadNextPage();
+        LoadedPage currentPage;
+        try {
+            currentPage = loadNextPage();
+        }
+        finally {
+            reportMemoryUsage();
+        }
         if (currentPage == null) {
             finished = true;
             return null;
@@ -91,16 +101,15 @@ public class DorisFlightSqlPageSource
     }
 
     @Override
-    public long getMemoryUsage()
-    {
-        return result.getMemoryUsage() + pageBuilder.getRetainedSizeInBytes();
-    }
-
-    @Override
     public void close()
     {
         finished = true;
-        result.close();
+        try {
+            result.close();
+        }
+        finally {
+            memoryContext.setBytes(0);
+        }
     }
 
     private LoadedPage loadNextPage()
@@ -129,6 +138,11 @@ public class DorisFlightSqlPageSource
                     batchBytes,
                     batchReadTimeNanos);
         }
+    }
+
+    private void reportMemoryUsage()
+    {
+        memoryContext.setBytes(result.getMemoryUsage() + pageBuilder.getRetainedSizeInBytes());
     }
 
     private record LoadedPage(SourcePage sourcePage, int positionCount, long completedBytes, long readTimeNanos) {}

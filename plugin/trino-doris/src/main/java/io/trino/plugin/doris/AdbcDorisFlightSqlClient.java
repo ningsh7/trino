@@ -14,6 +14,7 @@
 package io.trino.plugin.doris;
 
 import com.google.inject.Inject;
+import io.airlift.units.Duration;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorSession;
 import jakarta.annotation.PreDestroy;
@@ -37,6 +38,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
@@ -48,7 +50,6 @@ public class AdbcDorisFlightSqlClient
 {
     private static final String APPLICATION_NAME_PREFIX = "/* ApplicationName=Trino Doris Flight SQL Query */ ";
 
-    private final DorisConfig config;
     private final DorisQueryBuilder queryBuilder;
     private final DorisFlightSqlPortResolver portResolver;
     private final FlightSqlStreamOpenerFactory streamOpenerFactory;
@@ -62,8 +63,7 @@ public class AdbcDorisFlightSqlClient
     @Inject
     public AdbcDorisFlightSqlClient(DorisConfig config, DorisQueryBuilder queryBuilder, DorisFlightSqlPortResolver portResolver)
     {
-        this(
-                config,
+        this(config,
                 queryBuilder,
                 portResolver,
                 new AdbcFlightSqlStreamOpenerFactory(config),
@@ -79,7 +79,7 @@ public class AdbcDorisFlightSqlClient
         return new DorisFlightSqlConnectionPool(
                 streamOpenerFactory,
                 config.getFlightSqlConnectionPoolSize(),
-                io.airlift.units.Duration.succinctDuration(config.getFlightSqlConnectionIdleTimeoutSeconds(), java.util.concurrent.TimeUnit.SECONDS));
+                Duration.succinctDuration(config.getFlightSqlConnectionIdleTimeoutSeconds(), TimeUnit.SECONDS));
     }
 
     AdbcDorisFlightSqlClient(
@@ -90,7 +90,7 @@ public class AdbcDorisFlightSqlClient
             Supplier<List<String>> feHostsSupplier,
             DorisFlightSqlConnectionPool connectionPool)
     {
-        this.config = requireNonNull(config, "config is null");
+        requireNonNull(config, "config is null");
         this.queryBuilder = requireNonNull(queryBuilder, "queryBuilder is null");
         this.portResolver = requireNonNull(portResolver, "portResolver is null");
         this.streamOpenerFactory = requireNonNull(streamOpenerFactory, "streamOpenerFactory is null");
@@ -167,7 +167,7 @@ public class AdbcDorisFlightSqlClient
     {
         String queryId = session.getQueryId();
         activeQueries.add(queryId);
-        queryResources.computeIfAbsent(queryId, ignored -> new QueryResources());
+        queryResources.computeIfAbsent(queryId, _ -> new QueryResources());
     }
 
     @Override
@@ -199,7 +199,7 @@ public class AdbcDorisFlightSqlClient
         if (!activeQueries.contains(queryId)) {
             return null;
         }
-        return queryResources.computeIfAbsent(queryId, ignored -> new QueryResources());
+        return queryResources.computeIfAbsent(queryId, _ -> new QueryResources());
     }
 
     private DorisFlightSqlResult openStream(QueryResources reusableQueryResources, String feHost, int flightSqlPort, String sql)
@@ -625,7 +625,7 @@ public class AdbcDorisFlightSqlClient
         }
 
         @Override
-        public org.apache.arrow.vector.VectorSchemaRoot getVectorSchemaRoot()
+        public VectorSchemaRoot getVectorSchemaRoot()
         {
             try {
                 return reader.getVectorSchemaRoot();

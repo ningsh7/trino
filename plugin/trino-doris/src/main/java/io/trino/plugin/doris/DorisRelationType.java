@@ -16,5 +16,5 @@ package io.trino.plugin.doris;
 public enum DorisRelationType
 {
     TABLE,
-    VIEW
+    VIEW,
 }

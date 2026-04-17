@@ -23,6 +23,7 @@ import java.sql.Driver;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static io.trino.spi.StandardErrorCode.GENERIC_INTERNAL_ERROR;
@@ -36,13 +37,12 @@ public class DorisJdbcConnectionFactory
     private final String jdbcUrl;
     private final Properties connectionProperties;
     private final Map<String, Connection> queryConnections = new ConcurrentHashMap<>();
-    private final java.util.Set<String> activeQueries = ConcurrentHashMap.newKeySet();
+    private final Set<String> activeQueries = ConcurrentHashMap.newKeySet();
 
     @Inject
     public DorisJdbcConnectionFactory(DorisConfig config)
     {
-        this(
-                createDriver(),
+        this(createDriver(),
                 requireNonNull(config, "config is null").getJdbcUrl()
                         .orElseThrow(() -> new IllegalArgumentException("doris.jdbc-url must be set for Doris FE JDBC access")),
                 createConnectionProperties(config));

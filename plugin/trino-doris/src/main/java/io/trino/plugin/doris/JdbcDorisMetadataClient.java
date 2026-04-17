@@ -34,36 +34,42 @@ import static java.util.Objects.requireNonNull;
 public class JdbcDorisMetadataClient
         implements DorisMetadataClient
 {
-    private static final String VISIBLE_SCHEMAS_PREDICATE = """
+    private static final String VISIBLE_SCHEMAS_PREDICATE =
+            """
             LOWER(SCHEMA_NAME) NOT IN ('information_schema', '__internal_schema', 'mysql')
             """;
-    private static final String READABLE_TABLES_PREDICATE = """
+    private static final String READABLE_TABLES_PREDICATE =
+            """
             LOWER(TABLE_SCHEMA) NOT IN ('information_schema', '__internal_schema', 'mysql')
                 AND (
                     (TABLE_TYPE = 'BASE TABLE' AND UPPER(COALESCE(ENGINE, '')) IN ('OLAP', 'DORIS'))
                     OR TABLE_TYPE = 'VIEW'
                 )
             """;
-    private static final String LIST_SCHEMAS_SQL = """
+    private static final String LIST_SCHEMAS_SQL =
+            """
             SELECT SCHEMA_NAME
             FROM INFORMATION_SCHEMA.SCHEMATA
             WHERE %s
             ORDER BY SCHEMA_NAME
             """;
-    private static final String LIST_ALL_TABLES_SQL = """
+    private static final String LIST_ALL_TABLES_SQL =
+            """
             SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
             FROM INFORMATION_SCHEMA.TABLES
             WHERE %s
             ORDER BY TABLE_SCHEMA, TABLE_NAME
             """;
-    private static final String LIST_TABLES_IN_SCHEMA_SQL = """
+    private static final String LIST_TABLES_IN_SCHEMA_SQL =
+            """
             SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
             FROM INFORMATION_SCHEMA.TABLES
             WHERE %s
               AND LOWER(TABLE_SCHEMA) = LOWER(?)
             ORDER BY TABLE_SCHEMA, TABLE_NAME
             """;
-    private static final String RESOLVE_TABLE_SQL = """
+    private static final String RESOLVE_TABLE_SQL =
+            """
             SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE
             FROM INFORMATION_SCHEMA.TABLES
             WHERE %s
@@ -71,13 +77,15 @@ public class JdbcDorisMetadataClient
               AND LOWER(TABLE_NAME) = LOWER(?)
             ORDER BY TABLE_SCHEMA, TABLE_NAME
             """;
-    private static final String LIST_COLUMNS_SQL = """
+    private static final String LIST_COLUMNS_SQL =
+            """
             SELECT COLUMN_NAME, DATA_TYPE, COLUMN_SIZE, DECIMAL_DIGITS, ORDINAL_POSITION, COLUMN_TYPE
             FROM INFORMATION_SCHEMA.COLUMNS
             WHERE LOWER(TABLE_SCHEMA) = LOWER(?) AND LOWER(TABLE_NAME) = LOWER(?)
             ORDER BY ORDINAL_POSITION
             """;
-    private static final String TABLE_ROW_COUNT_SQL = """
+    private static final String TABLE_ROW_COUNT_SQL =
+            """
             SELECT TABLE_ROWS
             FROM INFORMATION_SCHEMA.TABLES
             WHERE LOWER(TABLE_SCHEMA) = LOWER(?) AND LOWER(TABLE_NAME) = LOWER(?)

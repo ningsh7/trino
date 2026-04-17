@@ -86,19 +86,31 @@ final class TestJdbcDorisMetadataClient
                         List.of(row("TABLE_SCHEMA", "mixedcase_db", "TABLE_NAME", "orderevents_mix")),
                         List.of(
                                 row(
-                                        "COLUMN_NAME", "event_id",
-                                        "DATA_TYPE", "BIGINT",
-                                        "COLUMN_SIZE", 20,
-                                        "DECIMAL_DIGITS", null,
-                                        "ORDINAL_POSITION", 1,
-                                        "COLUMN_TYPE", "BIGINT"),
+                                        "COLUMN_NAME",
+                                        "event_id",
+                                        "DATA_TYPE",
+                                        "BIGINT",
+                                        "COLUMN_SIZE",
+                                        20,
+                                        "DECIMAL_DIGITS",
+                                        null,
+                                        "ORDINAL_POSITION",
+                                        1,
+                                        "COLUMN_TYPE",
+                                        "BIGINT"),
                                 row(
-                                        "COLUMN_NAME", "created_at",
-                                        "DATA_TYPE", "DATETIME",
-                                        "COLUMN_SIZE", null,
-                                        "DECIMAL_DIGITS", 3,
-                                        "ORDINAL_POSITION", 2,
-                                        "COLUMN_TYPE", "DATETIMEV2(3)")))));
+                                        "COLUMN_NAME",
+                                        "created_at",
+                                        "DATA_TYPE",
+                                        "DATETIME",
+                                        "COLUMN_SIZE",
+                                        null,
+                                        "DECIMAL_DIGITS",
+                                        3,
+                                        "ORDINAL_POSITION",
+                                        2,
+                                        "COLUMN_TYPE",
+                                        "DATETIMEV2(3)")))));
 
         DorisRemoteTable remoteTable = client.getTable(new SchemaTableName("mixedcase_db", "orderevents_mix")).orElseThrow();
 
@@ -124,19 +136,31 @@ final class TestJdbcDorisMetadataClient
                         List.of(row("TABLE_SCHEMA", "tpch", "TABLE_NAME", "revenue0", "TABLE_TYPE", "VIEW")),
                         List.of(
                                 row(
-                                        "COLUMN_NAME", "supplier_no",
-                                        "DATA_TYPE", "BIGINT",
-                                        "COLUMN_SIZE", 20,
-                                        "DECIMAL_DIGITS", null,
-                                        "ORDINAL_POSITION", 1,
-                                        "COLUMN_TYPE", "BIGINT"),
+                                        "COLUMN_NAME",
+                                        "supplier_no",
+                                        "DATA_TYPE",
+                                        "BIGINT",
+                                        "COLUMN_SIZE",
+                                        20,
+                                        "DECIMAL_DIGITS",
+                                        null,
+                                        "ORDINAL_POSITION",
+                                        1,
+                                        "COLUMN_TYPE",
+                                        "BIGINT"),
                                 row(
-                                        "COLUMN_NAME", "total_revenue",
-                                        "DATA_TYPE", "DECIMAL",
-                                        "COLUMN_SIZE", 15,
-                                        "DECIMAL_DIGITS", 4,
-                                        "ORDINAL_POSITION", 2,
-                                        "COLUMN_TYPE", "DECIMAL(15,4)")))));
+                                        "COLUMN_NAME",
+                                        "total_revenue",
+                                        "DATA_TYPE",
+                                        "DECIMAL",
+                                        "COLUMN_SIZE",
+                                        15,
+                                        "DECIMAL_DIGITS",
+                                        4,
+                                        "ORDINAL_POSITION",
+                                        2,
+                                        "COLUMN_TYPE",
+                                        "DECIMAL(15,4)")))));
 
         DorisRemoteTable remoteTable = client.getTable(new SchemaTableName("tpch", "revenue0")).orElseThrow();
 

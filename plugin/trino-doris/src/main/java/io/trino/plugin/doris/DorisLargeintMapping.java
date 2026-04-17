@@ -18,5 +18,5 @@ public enum DorisLargeintMapping
     // Safe default for 128-bit Doris integers when Trino precision compatibility is unclear.
     VARCHAR,
     // Reserved for a later phase once end-to-end precision and predicate semantics are implemented.
-    DECIMAL
+    DECIMAL,
 }

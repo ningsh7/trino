@@ -157,7 +157,7 @@ public class FeDorisSplitPlanner
         for (Map.Entry<String, DorisQueryPlanTablet> partition : tablets) {
             long tabletId = parseTabletId(partition.getKey());
             String targetBackend = chooseBackend(beToTablets, partition.getValue().routings(), tabletId);
-            beToTablets.computeIfAbsent(targetBackend, ignored -> new ArrayList<>())
+            beToTablets.computeIfAbsent(targetBackend, _ -> new ArrayList<>())
                     .add(tabletId);
         }
         return beToTablets;
