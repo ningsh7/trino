@@ -92,12 +92,6 @@ public class JdbcDorisMetadataClient
     }
 
     @Override
-    public List<String> listSchemaNames()
-    {
-        return listSchemaNames((ConnectorSession) null);
-    }
-
-    @Override
     public List<String> listSchemaNames(ConnectorSession session)
     {
         try (Connection connection = openConnection(session);
@@ -114,12 +108,6 @@ public class JdbcDorisMetadataClient
         catch (SQLException e) {
             throw DorisJdbcConnectionFactory.jdbcOperationFailed("Failed to list Doris schemas", e);
         }
-    }
-
-    @Override
-    public List<SchemaTableName> listTables(Optional<String> schemaName)
-    {
-        return listTables(null, schemaName);
     }
 
     @Override
@@ -151,12 +139,6 @@ public class JdbcDorisMetadataClient
     }
 
     @Override
-    public Optional<DorisRemoteTable> getTable(SchemaTableName tableName)
-    {
-        return getTable(null, tableName);
-    }
-
-    @Override
     public Optional<DorisRemoteTable> getTable(ConnectorSession session, SchemaTableName tableName)
     {
         Optional<ResolvedTable> resolvedTable = resolveTable(session, tableName);
@@ -175,12 +157,6 @@ public class JdbcDorisMetadataClient
                 remoteTable.tableName(),
                 remoteTable.relationType(),
                 columns));
-    }
-
-    @Override
-    public OptionalLong getTableRowCount(SchemaTableName tableName)
-    {
-        return getTableRowCount(null, tableName);
     }
 
     @Override
@@ -276,9 +252,6 @@ public class JdbcDorisMetadataClient
     private Connection openConnection(ConnectorSession session)
             throws SQLException
     {
-        if (session == null) {
-            return connectionFactory.openConnection();
-        }
         return connectionFactory.openConnection(session);
     }
 
