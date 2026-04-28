@@ -67,7 +67,7 @@ public class FeDorisSplitPlanner
 
     FeDorisSplitPlanner(DorisConfig config, DorisQueryBuilder queryBuilder)
     {
-        this(config, queryBuilder, new TestingHttpClient(request -> {
+        this(config, queryBuilder, new TestingHttpClient(_ -> {
             throw new UnsupportedOperationException("HTTP client should not be used in this test path");
         }));
     }
@@ -174,7 +174,7 @@ public class FeDorisSplitPlanner
         for (Map.Entry<String, DorisQueryPlanTablet> partition : tablets) {
             long tabletId = parseTabletId(partition.getKey());
             String targetBackend = chooseBackend(beToTablets, partition.getValue().routings(), tabletId);
-            beToTablets.computeIfAbsent(targetBackend, ignored -> new ArrayList<>())
+            beToTablets.computeIfAbsent(targetBackend, _ -> new ArrayList<>())
                     .add(tabletId);
         }
         return beToTablets;

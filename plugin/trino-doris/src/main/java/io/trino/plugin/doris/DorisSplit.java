@@ -65,7 +65,7 @@ public record DorisSplit(
                 + estimatedSizeOf(schemaName)
                 + estimatedSizeOf(tableName)
                 + estimatedSizeOf(beAddress)
-                + estimatedSizeOf(tabletIds, ignored -> Long.BYTES)
+                + estimatedSizeOf(tabletIds, _ -> Long.BYTES)
                 + sizeOf(opaquedQueryPlan, SizeOf::estimatedSizeOf);
     }
 }

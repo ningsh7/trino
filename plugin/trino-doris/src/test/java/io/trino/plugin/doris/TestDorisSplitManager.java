@@ -32,7 +32,7 @@ final class TestDorisSplitManager
             throws Exception
     {
         AtomicInteger plannerCalls = new AtomicInteger();
-        DorisSplitManager splitManager = new DorisSplitManager(tableHandle -> {
+        DorisSplitManager splitManager = new DorisSplitManager(_ -> {
             plannerCalls.incrementAndGet();
             return List.of();
         });
