@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.airlift.units.Duration;
 import io.trino.filesystem.FileIterator;
+import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
@@ -27,7 +28,9 @@ import io.trino.filesystem.encryption.EncryptionKey;
 import io.trino.plugin.iceberg.IcebergStorageCredentials;
 import io.trino.plugin.iceberg.IcebergTableCredentials;
 import io.trino.spi.NodeVersion;
+import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.security.ConnectorIdentity;
+import io.trino.testing.TestingConnectorSession;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
 import org.apache.iceberg.azure.AzureProperties;
 import org.apache.iceberg.gcp.GCPProperties;
@@ -55,6 +58,48 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 final class TestIcebergRestCatalogFileSystemFactory
 {
+    @Test
+    void testVendedCredentialsPreserveFileSystemContext()
+    {
+        AtomicReference<FileSystemContext> capturedContext = new AtomicReference<>();
+        TrinoFileSystemFactory delegate = new TrinoFileSystemFactory()
+        {
+            @Override
+            public TrinoFileSystem create(ConnectorIdentity identity)
+            {
+                throw new AssertionError("FileSystemContext was not propagated");
+            }
+
+            @Override
+            public TrinoFileSystem create(FileSystemContext context)
+            {
+                capturedContext.set(context);
+                return new MockTrinoFileSystem();
+            }
+        };
+        ConnectorSession session = TestingConnectorSession.builder()
+                .setIdentity(ConnectorIdentity.ofUser("ldap_user"))
+                .setSource("test_source")
+                .setTraceToken("test_trace_token")
+                .build();
+        IcebergRestCatalogFileSystemFactory factory = createFactory(delegate, true);
+        Map<String, String> fileIoProperties = ImmutableMap.of(
+                S3FileIOProperties.ACCESS_KEY_ID, "test-access-key",
+                S3FileIOProperties.SECRET_ACCESS_KEY, "test-secret-key",
+                S3FileIOProperties.SESSION_TOKEN, "test-session-token");
+
+        factory.create(session, fileIoProperties).newInputFile(Location.of("s3://bucket/path"));
+
+        assertThat(capturedContext.get().queryId()).contains(session.getQueryId());
+        assertThat(capturedContext.get().source()).contains("test_source");
+        assertThat(capturedContext.get().traceToken()).contains("test_trace_token");
+        assertThat(capturedContext.get().identity().getUser()).isEqualTo("ldap_user");
+        assertThat(capturedContext.get().identity().getExtraCredentials())
+                .containsEntry(EXTRA_CREDENTIALS_ACCESS_KEY_PROPERTY, "test-access-key")
+                .containsEntry(EXTRA_CREDENTIALS_SECRET_KEY_PROPERTY, "test-secret-key")
+                .containsEntry(EXTRA_CREDENTIALS_SESSION_TOKEN_PROPERTY, "test-session-token");
+    }
+
     @Test
     void testS3VendedCredentials()
     {

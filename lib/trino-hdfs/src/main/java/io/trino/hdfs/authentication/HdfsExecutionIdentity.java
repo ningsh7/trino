@@ -13,21 +13,24 @@
  */
 package io.trino.hdfs.authentication;
 
-import io.trino.spi.security.ConnectorIdentity;
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
-import java.io.IOException;
-
-public interface HdfsAuthentication
+public record HdfsExecutionIdentity(String user, Mode mode, boolean stronglyAuthenticated)
 {
-    HdfsExecutionIdentity getExecutionIdentity(ConnectorIdentity identity)
-            throws IOException;
-
-    <T> T doAs(ConnectorIdentity identity, ExceptionAction<T> action)
-            throws IOException;
-
-    interface ExceptionAction<T>
+    public HdfsExecutionIdentity
     {
-        T run()
-                throws IOException;
+        requireNonNull(user, "user is null");
+        checkArgument(!user.isBlank(), "user is blank");
+        requireNonNull(mode, "mode is null");
+    }
+
+    public enum Mode
+    {
+        PROCESS_USER,
+        END_USER_IMPERSONATION,
+        FIXED_SERVICE_USER,
+        KERBEROS_SERVICE_PRINCIPAL,
+        KERBEROS_END_USER_IMPERSONATION,
     }
 }

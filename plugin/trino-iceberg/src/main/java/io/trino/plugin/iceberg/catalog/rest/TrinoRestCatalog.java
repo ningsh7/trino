@@ -24,6 +24,7 @@ import io.airlift.log.Logger;
 import io.jsonwebtoken.impl.DefaultJwtBuilder;
 import io.jsonwebtoken.jackson.io.JacksonSerializer;
 import io.trino.cache.EvictableCacheBuilder;
+import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.metastore.TableInfo;
@@ -535,7 +536,7 @@ public class TrinoRestCatalog
             // So log the exception and continue with deleting the table location
             log.warn(e, "Failed to delete table data referenced by metadata");
         }
-        deleteTableDirectory(fileSystemFactory.create(session.getIdentity(), IcebergTableCredentials.forFileIO(table.io())), schemaTableName, table.location());
+        deleteTableDirectory(fileSystemFactory.create(session, IcebergTableCredentials.forFileIO(table.io())), schemaTableName, table.location());
     }
 
     private static void deleteTableDirectory(TrinoFileSystem fileSystem, SchemaTableName schemaTableName, String tableLocation)
@@ -937,7 +938,7 @@ public class TrinoRestCatalog
     private SessionCatalog.SessionContext convert(ConnectorSession session)
     {
         return switch (sessionType) {
-            case NONE -> new SessionContext(randomUUID().toString(), null, credentials, ImmutableMap.of(), session.getIdentity());
+            case NONE -> new SessionContext(randomUUID().toString(), null, credentials, ImmutableMap.of(), FileSystemContext.of(session));
             case USER -> {
                 String sessionId = format("%s-%s-%s", session.getUser(), session.getQueryId(), session.getSource().orElse("default"));
 
@@ -964,7 +965,7 @@ public class TrinoRestCatalog
                         .put(OAuth2Properties.JWT_TOKEN_TYPE, subjectJwt)
                         .buildOrThrow();
 
-                yield new SessionCatalog.SessionContext(sessionId, session.getUser(), credentials, properties, session.getIdentity());
+                yield new SessionCatalog.SessionContext(sessionId, session.getUser(), credentials, properties, FileSystemContext.of(session));
             }
         };
     }

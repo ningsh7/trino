@@ -18,6 +18,7 @@ import com.google.common.cache.Cache;
 import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
 import io.trino.cache.EvictableCacheBuilder;
+import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
@@ -72,29 +73,11 @@ public class IcebergRestCatalogFileSystemFactory
     @Override
     public TrinoFileSystem create(ConnectorIdentity identity, Map<String, String> fileIoProperties)
     {
-        if (vendedCredentialsEnabled) {
-            return new IcebergRestCatalogFileSystem(new IcebergRestCatalogFileSystemLoader()
-            {
-                @Override
-                public TrinoFileSystem create(Location location)
-                {
-                    if (location.scheme().isEmpty()) {
-                        throw new IllegalArgumentException("Location scheme is empty: " + location);
-                    }
-                    CachedVendedCredentialsProviders cached = uncheckedCacheGet(
-                            vendedCredentialsProvidersCache,
-                            createVendedCredentialsCacheKey(identity, fileIoProperties, this.storageCredentials),
-                            () -> createVendedCredentialsProviders(fileIoProperties, this.storageCredentials));
-
-                    return getTrinoFileSystem(location, identity, cached);
-                }
-            });
-        }
-        return fileSystemFactory.create(identity);
+        return create(FileSystemContext.of(identity), fileIoProperties);
     }
 
     @Override
-    public TrinoFileSystem create(ConnectorIdentity identity, IcebergTableCredentials tableCredentials)
+    public TrinoFileSystem create(FileSystemContext context, Map<String, String> fileIoProperties)
     {
         if (vendedCredentialsEnabled) {
             return new IcebergRestCatalogFileSystem(new IcebergRestCatalogFileSystemLoader()
@@ -107,17 +90,47 @@ public class IcebergRestCatalogFileSystemFactory
                     }
                     CachedVendedCredentialsProviders cached = uncheckedCacheGet(
                             vendedCredentialsProvidersCache,
-                            createVendedCredentialsCacheKey(identity, tableCredentials.fileIoProperties(), tableCredentials.storageCredentials()),
-                            () -> createVendedCredentialsProviders(tableCredentials.fileIoProperties(), tableCredentials.storageCredentials()));
+                            createVendedCredentialsCacheKey(context.identity(), fileIoProperties, this.storageCredentials),
+                            () -> createVendedCredentialsProviders(fileIoProperties, this.storageCredentials));
 
-                    return getTrinoFileSystem(location, identity, cached);
+                    return getTrinoFileSystem(location, context, cached);
                 }
             });
         }
-        return fileSystemFactory.create(identity);
+        return fileSystemFactory.create(context);
     }
 
-    private TrinoFileSystem getTrinoFileSystem(Location location, ConnectorIdentity identity, CachedVendedCredentialsProviders cached)
+    @Override
+    public TrinoFileSystem create(ConnectorIdentity identity, IcebergTableCredentials tableCredentials)
+    {
+        return create(FileSystemContext.of(identity), tableCredentials);
+    }
+
+    @Override
+    public TrinoFileSystem create(FileSystemContext context, IcebergTableCredentials tableCredentials)
+    {
+        if (vendedCredentialsEnabled) {
+            return new IcebergRestCatalogFileSystem(new IcebergRestCatalogFileSystemLoader()
+            {
+                @Override
+                public TrinoFileSystem create(Location location)
+                {
+                    if (location.scheme().isEmpty()) {
+                        throw new IllegalArgumentException("Location scheme is empty: " + location);
+                    }
+                    CachedVendedCredentialsProviders cached = uncheckedCacheGet(
+                            vendedCredentialsProvidersCache,
+                            createVendedCredentialsCacheKey(context.identity(), tableCredentials.fileIoProperties(), tableCredentials.storageCredentials()),
+                            () -> createVendedCredentialsProviders(tableCredentials.fileIoProperties(), tableCredentials.storageCredentials()));
+
+                    return getTrinoFileSystem(location, context, cached);
+                }
+            });
+        }
+        return fileSystemFactory.create(context);
+    }
+
+    private TrinoFileSystem getTrinoFileSystem(Location location, FileSystemContext context, CachedVendedCredentialsProviders cached)
     {
         // Derive the vended credentials to load from the location scheme
         Optional<VendedCredentials> vendedCredentials = switch (location.scheme().get()) {
@@ -130,6 +143,7 @@ public class IcebergRestCatalogFileSystemFactory
             throw new IllegalStateException("Failed to initialize the vended credentials from the provided fileIoProperties");
         }
 
+        ConnectorIdentity identity = context.identity();
         ConnectorIdentity identityWithExtraCredentials = ConnectorIdentity.forUser(identity.getUser())
                 .withGroups(identity.getGroups())
                 .withPrincipal(identity.getPrincipal())
@@ -141,7 +155,7 @@ public class IcebergRestCatalogFileSystemFactory
                         .buildOrThrow())
                 .build();
 
-        return fileSystemFactory.create(identityWithExtraCredentials);
+        return fileSystemFactory.create(context.withIdentity(identityWithExtraCredentials));
     }
 
     private static VendedCredentialsCacheKey createVendedCredentialsCacheKey(ConnectorIdentity identity, Map<String, String> fileIoProperties, List<IcebergStorageCredentials> storageCredentials)

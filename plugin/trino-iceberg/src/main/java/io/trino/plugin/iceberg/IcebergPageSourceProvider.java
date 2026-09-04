@@ -301,7 +301,7 @@ public class IcebergPageSourceProvider
         verify(connectorTableCredentials.isPresent(), "connectorTableCredentials is empty");
         IcebergTableCredentials icebergTableCredentials = connectorTableCredentials.map(IcebergTableCredentials.class::cast).get();
         if (connectorSplit instanceof FilesTableSplit filesTableSplit) {
-            FileIO fileIO = fileIoFactory.create(fileSystemFactory.create(session.getIdentity(), icebergTableCredentials));
+            FileIO fileIO = fileIoFactory.create(fileSystemFactory.create(session, icebergTableCredentials));
             if (filesTableSplit.encryptionKeyId().isPresent()) {
                 EncryptionManager encryptionManager = encryptionManagerFactory.create(
                         ImmutableList.of(),
@@ -387,7 +387,7 @@ public class IcebergPageSourceProvider
 
         // exit early when only reading partition keys from a simple split
         String partition = partitionSpec.partitionToPath(partitionData);
-        TrinoFileSystem fileSystem = fileSystemFactory.create(session.getIdentity(), tableCredentials);
+        TrinoFileSystem fileSystem = fileSystemFactory.create(session, tableCredentials);
         TrinoInputFile inputFile = isUseFileSizeFromMetadata(session)
                 ? fileSystem.newInputFile(Location.of(path), fileSize)
                 : fileSystem.newInputFile(Location.of(path));

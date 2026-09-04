@@ -16,6 +16,7 @@ package io.trino.plugin.iceberg.catalog.rest;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.trino.cache.EvictableCacheBuilder;
+import io.trino.filesystem.FileSystemContext;
 import io.trino.metastore.TableInfo;
 import io.trino.plugin.iceberg.CommitTaskData;
 import io.trino.plugin.iceberg.DefaultIcebergFileSystemFactory;
@@ -29,11 +30,14 @@ import io.trino.spi.TrinoException;
 import io.trino.spi.catalog.CatalogName;
 import io.trino.spi.connector.ConnectorExpressionEvaluator;
 import io.trino.spi.connector.ConnectorMetadata;
+import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorViewDefinition;
 import io.trino.spi.connector.ConnectorViewDefinition.ViewColumn;
 import io.trino.spi.connector.SchemaTableName;
+import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.security.PrincipalType;
 import io.trino.spi.security.TrinoPrincipal;
+import io.trino.testing.TestingConnectorSession;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.RESTException;
@@ -50,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
@@ -248,6 +253,36 @@ public class TestTrinoRestCatalog
         catalog.listNamespaces(SESSION);
 
         assertThat(sessionIdCounts.values()).singleElement(INTEGER).isGreaterThan(1);
+    }
+
+    @Test
+    public void testRestSessionContextPreservesFileSystemContext()
+    {
+        AtomicReference<Object> wrappedIdentity = new AtomicReference<>();
+        RESTSessionCatalog restSessionCatalog = new NamespaceDeletedDuringRecursiveListingCatalog()
+        {
+            @Override
+            public List<Namespace> listNamespaces(SessionContext context, Namespace namespace)
+            {
+                wrappedIdentity.set(context.wrappedIdentity());
+                return super.listNamespaces(context, namespace);
+            }
+        };
+        ConnectorSession session = TestingConnectorSession.builder()
+                .setIdentity(ConnectorIdentity.ofUser("ldap_user"))
+                .setSource("test_source")
+                .setTraceToken("test_trace_token")
+                .build();
+        TrinoRestCatalog catalog = createTrinoRestCatalog(false, restSessionCatalog, true, false);
+
+        catalog.listNamespaces(session);
+
+        assertThat(wrappedIdentity.get()).isInstanceOfSatisfying(FileSystemContext.class, context -> {
+            assertThat(context.identity()).isEqualTo(session.getIdentity());
+            assertThat(context.queryId()).contains(session.getQueryId());
+            assertThat(context.source()).contains("test_source");
+            assertThat(context.traceToken()).contains("test_trace_token");
+        });
     }
 
     @Test

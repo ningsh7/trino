@@ -14,6 +14,7 @@
 package io.trino.filesystem.cache;
 
 import io.opentelemetry.api.trace.Tracer;
+import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.filesystem.tracing.TracingBlobCache;
@@ -40,5 +41,11 @@ public final class CacheFileSystemFactory
     public TrinoFileSystem create(ConnectorIdentity identity)
     {
         return new CacheFileSystem(delegate.create(identity), cache, keyProvider);
+    }
+
+    @Override
+    public TrinoFileSystem create(FileSystemContext context)
+    {
+        return new CacheFileSystem(delegate.create(context), cache, keyProvider);
     }
 }

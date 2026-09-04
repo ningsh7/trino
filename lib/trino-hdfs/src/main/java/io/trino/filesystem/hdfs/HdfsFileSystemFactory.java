@@ -14,6 +14,7 @@
 package io.trino.filesystem.hdfs;
 
 import com.google.inject.Inject;
+import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.hdfs.HdfsContext;
@@ -39,6 +40,12 @@ public class HdfsFileSystemFactory
     @Override
     public TrinoFileSystem create(ConnectorIdentity identity)
     {
-        return new HdfsFileSystem(environment, new HdfsContext(identity), fileSystemStats);
+        return create(FileSystemContext.of(identity));
+    }
+
+    @Override
+    public TrinoFileSystem create(FileSystemContext context)
+    {
+        return new HdfsFileSystem(environment, new HdfsContext(context), fileSystemStats);
     }
 }

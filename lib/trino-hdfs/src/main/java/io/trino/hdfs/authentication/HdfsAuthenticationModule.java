@@ -14,12 +14,9 @@
 package io.trino.hdfs.authentication;
 
 import com.google.inject.Binder;
-import com.google.inject.Module;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
-import io.trino.hdfs.authentication.HdfsAuthenticationConfig.HdfsAuthenticationType;
 
-import java.util.function.Predicate;
-
+import static io.trino.hdfs.authentication.AuthenticationModules.fixedUserHdfsAuthenticationModule;
 import static io.trino.hdfs.authentication.AuthenticationModules.kerberosHdfsAuthenticationModule;
 import static io.trino.hdfs.authentication.AuthenticationModules.kerberosImpersonatingHdfsAuthenticationModule;
 import static io.trino.hdfs.authentication.AuthenticationModules.noHdfsAuthenticationModule;
@@ -32,41 +29,16 @@ public class HdfsAuthenticationModule
     protected void setup(Binder binder)
     {
         HdfsAuthenticationConfig authenticationConfig = buildConfigObject(HdfsAuthenticationConfig.class);
-        bindAuthenticationModule(
-                authenticationConfig,
-                config -> noHdfsAuth(config) && !config.isHdfsImpersonationEnabled(),
-                noHdfsAuthenticationModule());
-
-        bindAuthenticationModule(
-                authenticationConfig,
-                config -> noHdfsAuth(config) && config.isHdfsImpersonationEnabled(),
-                simpleImpersonatingHdfsAuthenticationModule());
-
-        bindAuthenticationModule(
-                authenticationConfig,
-                config -> kerberosHdfsAuth(config) && !config.isHdfsImpersonationEnabled(),
-                kerberosHdfsAuthenticationModule());
-
-        bindAuthenticationModule(
-                authenticationConfig,
-                config -> kerberosHdfsAuth(config) && config.isHdfsImpersonationEnabled(),
-                kerberosImpersonatingHdfsAuthenticationModule());
-    }
-
-    private void bindAuthenticationModule(HdfsAuthenticationConfig config, Predicate<HdfsAuthenticationConfig> predicate, Module module)
-    {
-        if (predicate.test(config)) {
-            install(module);
+        switch (authenticationConfig.getEffectiveHdfsIdentityMode()) {
+            case FIXED -> install(fixedUserHdfsAuthenticationModule(authenticationConfig.getHdfsFixedUser().orElseThrow()));
+            case PROCESS -> install(switch (authenticationConfig.getHdfsAuthenticationType()) {
+                case NONE -> noHdfsAuthenticationModule();
+                case KERBEROS -> kerberosHdfsAuthenticationModule();
+            });
+            case IMPERSONATE -> install(switch (authenticationConfig.getHdfsAuthenticationType()) {
+                case NONE -> simpleImpersonatingHdfsAuthenticationModule();
+                case KERBEROS -> kerberosImpersonatingHdfsAuthenticationModule();
+            });
         }
-    }
-
-    private static boolean noHdfsAuth(HdfsAuthenticationConfig config)
-    {
-        return config.getHdfsAuthenticationType() == HdfsAuthenticationType.NONE;
-    }
-
-    private static boolean kerberosHdfsAuth(HdfsAuthenticationConfig config)
-    {
-        return config.getHdfsAuthenticationType() == HdfsAuthenticationType.KERBEROS;
     }
 }

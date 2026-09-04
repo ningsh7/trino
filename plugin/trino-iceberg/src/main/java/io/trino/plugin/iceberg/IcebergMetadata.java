@@ -1506,7 +1506,7 @@ public class IcebergMetadata
         Location location = Location.of(transaction.table().location());
         try {
             if (!skipEmptyLocationCheck(tableLocation, location)) {
-                TrinoFileSystem fileSystem = fileSystemFactory.create(session.getIdentity(), IcebergTableCredentials.forFileIO(transaction.table().io()));
+                TrinoFileSystem fileSystem = fileSystemFactory.create(session, IcebergTableCredentials.forFileIO(transaction.table().io()));
                 if (!replace && fileSystem.listFiles(location).hasNext()) {
                     throw new TrinoException(ICEBERG_FILESYSTEM_ERROR, format("" +
                             "Cannot create a table on a non-empty location: %s, set 'iceberg.unique-table-location=true' in your Iceberg catalog properties " +
@@ -2404,7 +2404,7 @@ public class IcebergMetadata
         }
 
         Instant expiration = session.getStart().minusMillis(retention.toMillis());
-        TrinoFileSystem fileSystem = fileSystemFactory.create(session.getIdentity(), IcebergTableCredentials.forFileIO(table.io()));
+        TrinoFileSystem fileSystem = fileSystemFactory.create(session, IcebergTableCredentials.forFileIO(table.io()));
         return removeOrphanFiles(
                 table,
                 fileSystem,
@@ -2419,7 +2419,7 @@ public class IcebergMetadata
         IcebergAddFilesHandle addFilesHandle = (IcebergAddFilesHandle) executeHandle.procedureHandle();
         Table table = catalog.loadTable(session, executeHandle.schemaTableName());
         validateNotEncryptedForWrite(table);
-        TrinoFileSystem fileSystem = fileSystemFactory.create(session.getIdentity(), IcebergTableCredentials.forFileIO(table.io()));
+        TrinoFileSystem fileSystem = fileSystemFactory.create(session, IcebergTableCredentials.forFileIO(table.io()));
         long addedDataFiles = addFiles(
                 session,
                 fileSystem,
@@ -2437,7 +2437,7 @@ public class IcebergMetadata
         IcebergAddFilesFromTableHandle addFilesHandle = (IcebergAddFilesFromTableHandle) executeHandle.procedureHandle();
         Table table = catalog.loadTable(session, executeHandle.schemaTableName());
         validateNotEncryptedForWrite(table);
-        TrinoFileSystem fileSystem = fileSystemFactory.create(session.getIdentity(), IcebergTableCredentials.forFileIO(table.io()));
+        TrinoFileSystem fileSystem = fileSystemFactory.create(session, IcebergTableCredentials.forFileIO(table.io()));
         long addedDataFiles = addFilesFromTable(
                 session,
                 fileSystem,

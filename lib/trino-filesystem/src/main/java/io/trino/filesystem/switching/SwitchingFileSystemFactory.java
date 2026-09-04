@@ -13,13 +13,13 @@
  */
 package io.trino.filesystem.switching;
 
+import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.security.ConnectorIdentity;
 
-import java.util.Optional;
 import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
@@ -37,12 +37,18 @@ public final class SwitchingFileSystemFactory
     @Override
     public TrinoFileSystem create(ConnectorSession session)
     {
-        return new SwitchingFileSystem(Optional.of(session), Optional.empty(), loader);
+        return create(FileSystemContext.of(session));
     }
 
     @Override
     public TrinoFileSystem create(ConnectorIdentity identity)
     {
-        return new SwitchingFileSystem(Optional.empty(), Optional.of(identity), loader);
+        return create(FileSystemContext.of(identity));
+    }
+
+    @Override
+    public TrinoFileSystem create(FileSystemContext context)
+    {
+        return new SwitchingFileSystem(context, loader);
     }
 }

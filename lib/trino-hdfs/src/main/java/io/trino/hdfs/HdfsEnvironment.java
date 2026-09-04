@@ -18,6 +18,7 @@ import io.airlift.log.Logger;
 import io.trino.hadoop.HadoopNative;
 import io.trino.hdfs.authentication.HdfsAuthentication;
 import io.trino.hdfs.authentication.HdfsAuthentication.ExceptionAction;
+import io.trino.hdfs.authentication.HdfsExecutionIdentity;
 import io.trino.spi.Plugin;
 import io.trino.spi.classloader.ThreadContextClassLoader;
 import io.trino.spi.security.ConnectorIdentity;
@@ -95,6 +96,14 @@ public class HdfsEnvironment
     public Optional<FsPermission> getNewDirectoryPermissions()
     {
         return newDirectoryPermissions;
+    }
+
+    public HdfsExecutionIdentity getExecutionIdentity(ConnectorIdentity identity)
+            throws IOException
+    {
+        try (var _ = new ThreadContextClassLoader(getClass().getClassLoader())) {
+            return hdfsAuthentication.getExecutionIdentity(identity);
+        }
     }
 
     public <T> T doAs(ConnectorIdentity identity, ExceptionAction<T> action)

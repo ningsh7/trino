@@ -17,9 +17,21 @@ import io.trino.spi.security.ConnectorIdentity;
 
 import java.io.IOException;
 
+import static io.trino.hdfs.authentication.HdfsExecutionIdentity.Mode.PROCESS_USER;
+import static java.util.Objects.requireNonNull;
+import static org.apache.hadoop.security.UserGroupInformation.getCurrentUser;
+
 public class NoHdfsAuthentication
         implements HdfsAuthentication
 {
+    @Override
+    public HdfsExecutionIdentity getExecutionIdentity(ConnectorIdentity identity)
+            throws IOException
+    {
+        requireNonNull(identity, "identity is null");
+        return new HdfsExecutionIdentity(getCurrentUser().getUserName(), PROCESS_USER, false);
+    }
+
     @Override
     public <T> T doAs(ConnectorIdentity identity, ExceptionAction<T> action)
             throws IOException

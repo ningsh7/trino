@@ -13,6 +13,7 @@
  */
 package io.trino.filesystem.tracking;
 
+import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.spi.connector.ConnectorSession;
@@ -42,7 +43,13 @@ public class TrackingFileSystemFactory
     @Override
     public TrinoFileSystem create(ConnectorSession session)
     {
-        return new TrackingFileSystem(delegate.create(session), createCleaner());
+        return create(FileSystemContext.of(session));
+    }
+
+    @Override
+    public TrinoFileSystem create(FileSystemContext context)
+    {
+        return new TrackingFileSystem(delegate.create(context), createCleaner());
     }
 
     private static Cleaner createCleaner()

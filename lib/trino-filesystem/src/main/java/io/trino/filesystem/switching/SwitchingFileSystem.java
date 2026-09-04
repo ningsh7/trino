@@ -15,6 +15,7 @@ package io.trino.filesystem.switching;
 
 import io.airlift.units.Duration;
 import io.trino.filesystem.FileIterator;
+import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
@@ -22,8 +23,6 @@ import io.trino.filesystem.TrinoInputFile;
 import io.trino.filesystem.TrinoOutputFile;
 import io.trino.filesystem.UriLocation;
 import io.trino.filesystem.encryption.EncryptionKey;
-import io.trino.spi.connector.ConnectorSession;
-import io.trino.spi.security.ConnectorIdentity;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -32,25 +31,18 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.groupingBy;
 
 final class SwitchingFileSystem
         implements TrinoFileSystem
 {
-    private final Optional<ConnectorSession> session;
-    private final Optional<ConnectorIdentity> identity;
+    private final FileSystemContext context;
     private final Function<Location, TrinoFileSystemFactory> loader;
 
-    public SwitchingFileSystem(
-            Optional<ConnectorSession> session,
-            Optional<ConnectorIdentity> identity,
-            Function<Location, TrinoFileSystemFactory> loader)
+    public SwitchingFileSystem(FileSystemContext context, Function<Location, TrinoFileSystemFactory> loader)
     {
-        checkArgument(session.isPresent() != identity.isPresent(), "exactly one of session and identity must be present");
-        this.session = session;
-        this.identity = identity;
+        this.context = requireNonNull(context, "context is null");
         this.loader = requireNonNull(loader, "loader is null");
     }
 
@@ -203,7 +195,6 @@ final class SwitchingFileSystem
 
     private TrinoFileSystem createFileSystem(TrinoFileSystemFactory factory)
     {
-        return session.map(factory::create).orElseGet(() ->
-                factory.create(identity.orElseThrow()));
+        return factory.create(context);
     }
 }

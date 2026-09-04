@@ -29,6 +29,30 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestHdfsFileSystemManager
 {
     @Test
+    void testFixedUserConfiguration()
+    {
+        HdfsFileSystemManager manager = new HdfsFileSystemManager(
+                ImmutableMap.<String, String>builder()
+                        .put("hive.hdfs.authentication.type", "NONE")
+                        .put("hive.hdfs.identity.mode", "FIXED")
+                        .put("hive.hdfs.fixed-user", "hive_service")
+                        .buildOrThrow(),
+                "test",
+                new TestingConnectorContext());
+
+        try {
+            assertThat(manager.configure().keySet()).containsExactlyInAnyOrder(
+                    "hive.hdfs.authentication.type",
+                    "hive.hdfs.identity.mode",
+                    "hive.hdfs.fixed-user");
+            assertThat(manager.create()).isNotNull();
+        }
+        finally {
+            manager.stop();
+        }
+    }
+
+    @Test
     void testManager()
             throws IOException
     {

@@ -15,6 +15,7 @@ package io.trino.hdfs;
 
 import com.google.common.collect.ImmutableSet;
 import io.airlift.concurrent.MoreFutures;
+import io.trino.hdfs.authentication.FixedUserHdfsAuthentication;
 import io.trino.hdfs.authentication.ImpersonatingHdfsAuthentication;
 import io.trino.hdfs.authentication.SimpleHadoopAuthentication;
 import io.trino.spi.security.ConnectorIdentity;
@@ -80,6 +81,21 @@ public class TestFileSystemCache
 
         FileSystem fs5 = getFileSystem(environment, userId);
         assertThat(fs5).isNotSameAs(fs1);
+    }
+
+    @Test
+    public void testFixedUserFileSystemCache()
+            throws IOException
+    {
+        HdfsEnvironment environment = new HdfsEnvironment(
+                new DynamicHdfsConfiguration(new HdfsConfigurationInitializer(new HdfsConfig()), ImmutableSet.of()),
+                new HdfsConfig(),
+                new FixedUserHdfsAuthentication("hive_service"));
+
+        FileSystem firstUserFileSystem = getFileSystem(environment, ConnectorIdentity.ofUser("ldap_zhangsan"));
+        FileSystem secondUserFileSystem = getFileSystem(environment, ConnectorIdentity.ofUser("ldap_lisi"));
+
+        assertThat(secondUserFileSystem).isSameAs(firstUserFileSystem);
     }
 
     @Test

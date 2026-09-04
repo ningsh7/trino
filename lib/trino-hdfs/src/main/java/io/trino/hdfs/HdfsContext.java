@@ -13,30 +13,52 @@
  */
 package io.trino.hdfs;
 
+import io.trino.filesystem.FileSystemContext;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.security.ConnectorIdentity;
+
+import java.util.Optional;
 
 import static com.google.common.base.MoreObjects.toStringHelper;
 import static java.util.Objects.requireNonNull;
 
 public class HdfsContext
 {
-    private final ConnectorIdentity identity;
+    private final FileSystemContext fileSystemContext;
 
     public HdfsContext(ConnectorIdentity identity)
     {
-        this.identity = requireNonNull(identity, "identity is null");
+        this(FileSystemContext.of(identity));
     }
 
     public HdfsContext(ConnectorSession session)
     {
-        requireNonNull(session, "session is null");
-        this.identity = requireNonNull(session.getIdentity(), "session.getIdentity() is null");
+        this(FileSystemContext.of(session));
+    }
+
+    public HdfsContext(FileSystemContext fileSystemContext)
+    {
+        this.fileSystemContext = requireNonNull(fileSystemContext, "fileSystemContext is null");
     }
 
     public ConnectorIdentity getIdentity()
     {
-        return identity;
+        return fileSystemContext.identity();
+    }
+
+    public Optional<String> getQueryId()
+    {
+        return fileSystemContext.queryId();
+    }
+
+    public Optional<String> getTraceToken()
+    {
+        return fileSystemContext.traceToken();
+    }
+
+    public Optional<String> getSource()
+    {
+        return fileSystemContext.source();
     }
 
     @Override
@@ -44,7 +66,9 @@ public class HdfsContext
     {
         return toStringHelper(this)
                 .omitNullValues()
-                .add("user", identity)
+                .add("user", getIdentity())
+                .add("queryId", getQueryId().orElse(null))
+                .add("source", getSource().orElse(null))
                 .toString();
     }
 }

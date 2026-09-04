@@ -13,45 +13,45 @@
  */
 package io.trino.hdfs.authentication;
 
-import com.google.inject.Inject;
 import io.trino.spi.security.ConnectorIdentity;
+import org.apache.hadoop.security.UserGroupInformation;
 
 import java.io.IOException;
 import java.io.InterruptedIOException;
 
-import static io.trino.hdfs.authentication.HdfsExecutionIdentity.Mode.KERBEROS_SERVICE_PRINCIPAL;
-import static io.trino.hdfs.authentication.HdfsExecutionIdentity.Mode.PROCESS_USER;
+import static com.google.common.base.Preconditions.checkArgument;
+import static io.trino.hdfs.authentication.HdfsExecutionIdentity.Mode.FIXED_SERVICE_USER;
 import static java.util.Objects.requireNonNull;
+import static org.apache.hadoop.security.UserGroupInformation.createRemoteUser;
 
-public class DirectHdfsAuthentication
+public class FixedUserHdfsAuthentication
         implements HdfsAuthentication
 {
-    private final HadoopAuthentication hadoopAuthentication;
+    private final UserGroupInformation userGroupInformation;
 
-    @Inject
-    public DirectHdfsAuthentication(@ForHdfs HadoopAuthentication hadoopAuthentication)
+    public FixedUserHdfsAuthentication(String fixedUser)
     {
-        this.hadoopAuthentication = requireNonNull(hadoopAuthentication);
+        requireNonNull(fixedUser, "fixedUser is null");
+        checkArgument(!fixedUser.isBlank(), "fixedUser is blank");
+        this.userGroupInformation = createRemoteUser(fixedUser);
     }
 
     @Override
     public HdfsExecutionIdentity getExecutionIdentity(ConnectorIdentity identity)
     {
         requireNonNull(identity, "identity is null");
-        var userGroupInformation = hadoopAuthentication.getUserGroupInformation();
-        boolean stronglyAuthenticated = userGroupInformation.hasKerberosCredentials();
-        return new HdfsExecutionIdentity(
-                userGroupInformation.getUserName(),
-                stronglyAuthenticated ? KERBEROS_SERVICE_PRINCIPAL : PROCESS_USER,
-                stronglyAuthenticated);
+        return new HdfsExecutionIdentity(userGroupInformation.getUserName(), FIXED_SERVICE_USER, false);
     }
 
     @Override
     public <T> T doAs(ConnectorIdentity identity, ExceptionAction<T> action)
             throws IOException
     {
+        requireNonNull(identity, "identity is null");
+        requireNonNull(action, "action is null");
+
         try {
-            return hadoopAuthentication.getUserGroupInformation().callAs(action::run);
+            return userGroupInformation.callAs(action::run);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
