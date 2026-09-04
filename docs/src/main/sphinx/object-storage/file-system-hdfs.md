@@ -76,7 +76,72 @@ Use the following properties to configure general aspects of HDFS support:
 * - `hive.dfs.replication`
   - Integer value to set the HDFS replication factor. By default, no value is
     set.
+* - `hive.hdfs.audit.enabled`
+  - Enable structured HDFS file operation audit events. Defaults to `false`.
+* - `hive.hdfs.audit.read-enabled`
+  - Include one `OPEN_READ` event for each file open operation when HDFS audit
+    logging is enabled. Defaults to `true`.
+* - `hive.hdfs.audit.list-enabled`
+  - Include `LIST_FILES` and `LIST_DIRECTORIES` events when HDFS audit logging
+    is enabled. Defaults to `false` to limit event volume.
+* - `hive.hdfs.audit.path-mode`
+  - Configure the representation of paths in HDFS audit events. Supported
+    values are the sanitized complete path (`FULL`) and the SHA-256 hash of the
+    sanitized path (`HASH`). Defaults to `FULL`.
+* - `hive.hdfs.audit.error-message-max-length`
+  - Maximum number of characters from a sanitized HDFS error message included
+    in an audit event. Set to `0` to omit error messages. Defaults to `2048`.
 :::
+
+(hdfs-operation-auditing)=
+## HDFS operation auditing
+
+HDFS operation auditing produces structured events that correlate the Trino
+user and query with the identity and physical path used for an HDFS operation.
+Enable auditing separately for each catalog:
+
+```properties
+hive.hdfs.audit.enabled=true
+hive.hdfs.audit.read-enabled=true
+hive.hdfs.audit.list-enabled=false
+hive.hdfs.audit.path-mode=FULL
+hive.hdfs.audit.error-message-max-length=2048
+```
+
+Operation coverage includes file open and creation, file and directory
+deletion, file and directory rename, and directory creation. A file open
+produces one `OPEN_READ` event rather than an event for every buffered read. A
+file creation produces its final `CREATE_FILE` event when the output stream is
+closed, including the number of bytes written. Failure to create or close the
+output stream produces a failure event. A bulk file deletion produces one event
+for every path that Trino attempts to delete. The events share a batch
+identifier but have separate operation identifiers. File and directory listing
+events are only produced when `hive.hdfs.audit.list-enabled` is enabled.
+
+Events are serialized as single-line JSON and written to the dedicated
+`io.trino.filesystem.hdfs.audit` logger. Configure your logging system to route
+this logger to access-controlled audit storage. HDFS operation code does not
+connect directly to Kafka or an external audit SDK.
+
+Each event includes the operation identifier, timestamp, query identifier,
+trace token, Trino user, catalog, HDFS execution user and identity mode, node,
+operation, path, result, duration, and file creation byte count when available.
+Query-triggered events use the `QUERY` origin. Operations created with only a
+connector identity use the `BACKGROUND` origin and a null query identifier.
+
+Paths never include URI user information, query parameters, or fragments.
+Control characters are removed from paths and error messages. The `HASH` path
+mode hashes the sanitized canonical path and prevents error messages from
+exposing other URI paths. Complete paths can contain sensitive business
+information, so use `HASH` when audit storage does not meet the access control,
+encryption, and retention requirements for complete paths.
+
+Audit serialization or output failures do not change the result of an HDFS
+operation and do not replace the original HDFS exception. Such failures are
+reported through a rate-limited fallback logger and JMX statistics. Monitoring
+of the log collection and audit storage pipeline is required because a
+successful logger call does not guarantee that an external collector persisted
+the event.
 
 ## Security
 

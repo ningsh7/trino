@@ -17,6 +17,7 @@ import com.google.inject.Inject;
 import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
+import io.trino.filesystem.hdfs.audit.HdfsOperationAuditor;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.hdfs.TrinoHdfsFileSystemStats;
@@ -29,12 +30,19 @@ public class HdfsFileSystemFactory
 {
     private final HdfsEnvironment environment;
     private final TrinoHdfsFileSystemStats fileSystemStats;
+    private final HdfsOperationAuditor auditor;
 
     @Inject
-    public HdfsFileSystemFactory(HdfsEnvironment environment, TrinoHdfsFileSystemStats fileSystemStats)
+    public HdfsFileSystemFactory(HdfsEnvironment environment, TrinoHdfsFileSystemStats fileSystemStats, HdfsOperationAuditor auditor)
     {
         this.environment = requireNonNull(environment, "environment is null");
         this.fileSystemStats = requireNonNull(fileSystemStats, "fileSystemStats is null");
+        this.auditor = requireNonNull(auditor, "auditor is null");
+    }
+
+    public HdfsFileSystemFactory(HdfsEnvironment environment, TrinoHdfsFileSystemStats fileSystemStats)
+    {
+        this(environment, fileSystemStats, HdfsOperationAuditor.noop());
     }
 
     @Override
@@ -46,6 +54,6 @@ public class HdfsFileSystemFactory
     @Override
     public TrinoFileSystem create(FileSystemContext context)
     {
-        return new HdfsFileSystem(environment, new HdfsContext(context), fileSystemStats);
+        return new HdfsFileSystem(environment, new HdfsContext(context), fileSystemStats, auditor);
     }
 }

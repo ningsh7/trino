@@ -14,6 +14,8 @@
 package io.trino.filesystem.hdfs;
 
 import io.trino.filesystem.Location;
+import io.trino.filesystem.hdfs.audit.HdfsOperationAuditor;
+import io.trino.filesystem.hdfs.audit.HdfsOperationAuditor.OperationAudit;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.spi.security.ConnectorIdentity;
@@ -22,6 +24,7 @@ import org.apache.hadoop.fs.FSDataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.CREATE_FILE;
 import static java.util.Objects.requireNonNull;
 
 class HdfsOutputStream
@@ -30,14 +33,22 @@ class HdfsOutputStream
     private final Location location;
     private final HdfsEnvironment environment;
     private final ConnectorIdentity identity;
+    private final OperationAudit operationAudit;
+    private Throwable writeFailure;
     private boolean closed;
 
     public HdfsOutputStream(Location location, FSDataOutputStream out, HdfsEnvironment environment, HdfsContext context)
     {
+        this(location, out, environment, context, HdfsOperationAuditor.noop().begin(context, CREATE_FILE, location));
+    }
+
+    public HdfsOutputStream(Location location, FSDataOutputStream out, HdfsEnvironment environment, HdfsContext context, OperationAudit operationAudit)
+    {
         super(out, null, out.getPos());
         this.location = requireNonNull(location, "location is null");
-        this.environment = environment;
+        this.environment = requireNonNull(environment, "environment is null");
         this.identity = context.getIdentity();
+        this.operationAudit = requireNonNull(operationAudit, "operationAudit is null");
     }
 
     @Override
@@ -53,10 +64,16 @@ class HdfsOutputStream
     {
         ensureOpen();
         // handle Kerberos ticket refresh during long write operations
-        environment.doAs(identity, () -> {
-            super.write(b);
-            return null;
-        });
+        try {
+            environment.doAs(identity, () -> {
+                super.write(b);
+                return null;
+            });
+        }
+        catch (IOException | RuntimeException e) {
+            recordWriteFailure(e);
+            throw e;
+        }
     }
 
     @Override
@@ -65,10 +82,16 @@ class HdfsOutputStream
     {
         ensureOpen();
         // handle Kerberos ticket refresh during long write operations
-        environment.doAs(identity, () -> {
-            super.write(b, off, len);
-            return null;
-        });
+        try {
+            environment.doAs(identity, () -> {
+                super.write(b, off, len);
+                return null;
+            });
+        }
+        catch (IOException | RuntimeException e) {
+            recordWriteFailure(e);
+            throw e;
+        }
     }
 
     @Override
@@ -76,15 +99,38 @@ class HdfsOutputStream
             throws IOException
     {
         ensureOpen();
-        super.flush();
+        try {
+            super.flush();
+        }
+        catch (IOException | RuntimeException e) {
+            recordWriteFailure(e);
+            throw e;
+        }
     }
 
     @Override
     public void close()
             throws IOException
     {
+        if (closed) {
+            super.close();
+            return;
+        }
         closed = true;
-        super.close();
+        long bytes = getPos();
+        try {
+            super.close();
+            if (writeFailure == null) {
+                operationAudit.succeeded(bytes);
+            }
+            else {
+                operationAudit.failed(writeFailure, bytes);
+            }
+        }
+        catch (IOException | RuntimeException e) {
+            operationAudit.failed(e, bytes);
+            throw e;
+        }
     }
 
     private void ensureOpen()
@@ -92,6 +138,13 @@ class HdfsOutputStream
     {
         if (closed) {
             throw new IOException("Output stream closed: " + location);
+        }
+    }
+
+    private void recordWriteFailure(Throwable failure)
+    {
+        if (writeFailure == null) {
+            writeFailure = requireNonNull(failure, "failure is null");
         }
     }
 }

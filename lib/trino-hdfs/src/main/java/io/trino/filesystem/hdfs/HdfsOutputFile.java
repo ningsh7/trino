@@ -16,6 +16,8 @@ package io.trino.filesystem.hdfs;
 import io.airlift.stats.TimeStat;
 import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoOutputFile;
+import io.trino.filesystem.hdfs.audit.HdfsOperationAuditor;
+import io.trino.filesystem.hdfs.audit.HdfsOperationAuditor.OperationAudit;
 import io.trino.hdfs.CallStats;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
@@ -31,6 +33,7 @@ import java.nio.file.FileAlreadyExistsException;
 
 import static io.trino.filesystem.hdfs.HadoopPaths.hadoopPath;
 import static io.trino.filesystem.hdfs.HdfsFileSystem.withCause;
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.CREATE_FILE;
 import static java.util.Objects.requireNonNull;
 
 class HdfsOutputFile
@@ -40,13 +43,20 @@ class HdfsOutputFile
     private final HdfsEnvironment environment;
     private final HdfsContext context;
     private final CallStats createFileCallStat;
+    private final HdfsOperationAuditor auditor;
 
-    public HdfsOutputFile(Location location, HdfsEnvironment environment, HdfsContext context, CallStats createFileCallStat)
+    public HdfsOutputFile(
+            Location location,
+            HdfsEnvironment environment,
+            HdfsContext context,
+            CallStats createFileCallStat,
+            HdfsOperationAuditor auditor)
     {
         this.location = requireNonNull(location, "location is null");
         this.environment = requireNonNull(environment, "environment is null");
         this.context = requireNonNull(context, "context is null");
         this.createFileCallStat = requireNonNull(createFileCallStat, "createFileCallStat is null");
+        this.auditor = requireNonNull(auditor, "auditor is null");
         location.verifyValidFileLocation();
     }
 
@@ -71,27 +81,38 @@ class HdfsOutputFile
     private OutputStream create(boolean overwrite)
             throws IOException
     {
-        createFileCallStat.newCall();
-        Path file = hadoopPath(location);
-        FileSystem fileSystem = environment.getFileSystem(context, file);
-        try (TimeStat.BlockTimer _ = createFileCallStat.time()) {
-            return create(() -> fileSystem.create(file, overwrite));
+        OperationAudit operationAudit = auditor.begin(context, CREATE_FILE, location);
+        try {
+            createFileCallStat.newCall();
+            Path file = hadoopPath(location);
+            FileSystem fileSystem = environment.getFileSystem(context, file);
+            try (TimeStat.BlockTimer _ = createFileCallStat.time()) {
+                return create(() -> fileSystem.create(file, overwrite), operationAudit);
+            }
         }
         catch (org.apache.hadoop.fs.FileAlreadyExistsException e) {
             createFileCallStat.recordException(e);
-            throw withCause(new FileAlreadyExistsException(toString()), e);
+            FileAlreadyExistsException failure = withCause(new FileAlreadyExistsException(toString()), e);
+            operationAudit.failed(failure);
+            throw failure;
         }
         catch (IOException e) {
             createFileCallStat.recordException(e);
-            throw new IOException("Creation of file %s failed: %s".formatted(file, e.getMessage()), e);
+            IOException failure = new IOException("Creation of file %s failed: %s".formatted(location, e.getMessage()), e);
+            operationAudit.failed(failure);
+            throw failure;
+        }
+        catch (RuntimeException e) {
+            operationAudit.failed(e);
+            throw e;
         }
     }
 
-    private OutputStream create(ExceptionAction<FSDataOutputStream> action)
+    private OutputStream create(ExceptionAction<FSDataOutputStream> action, OperationAudit operationAudit)
             throws IOException
     {
         FSDataOutputStream out = environment.doAs(context.getIdentity(), action);
-        return new HdfsOutputStream(location, out, environment, context);
+        return new HdfsOutputStream(location, out, environment, context, operationAudit);
     }
 
     @Override

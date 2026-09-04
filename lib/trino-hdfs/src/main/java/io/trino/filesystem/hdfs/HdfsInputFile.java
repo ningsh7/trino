@@ -18,6 +18,7 @@ import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoInput;
 import io.trino.filesystem.TrinoInputFile;
 import io.trino.filesystem.TrinoInputStream;
+import io.trino.filesystem.hdfs.audit.HdfsOperationAuditor;
 import io.trino.hdfs.CallStats;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
@@ -33,6 +34,7 @@ import java.time.Instant;
 import static com.google.common.base.Preconditions.checkArgument;
 import static io.trino.filesystem.hdfs.HadoopPaths.hadoopPath;
 import static io.trino.filesystem.hdfs.HdfsFileSystem.withCause;
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.OPEN_READ;
 import static java.util.Objects.requireNonNull;
 
 class HdfsInputFile
@@ -43,15 +45,24 @@ class HdfsInputFile
     private final HdfsContext context;
     private final Path file;
     private final CallStats openFileCallStat;
+    private final HdfsOperationAuditor auditor;
     private Long length;
     private Instant lastModified;
 
-    public HdfsInputFile(Location location, Long length, Instant lastModified, HdfsEnvironment environment, HdfsContext context, CallStats openFileCallStat)
+    public HdfsInputFile(
+            Location location,
+            Long length,
+            Instant lastModified,
+            HdfsEnvironment environment,
+            HdfsContext context,
+            CallStats openFileCallStat,
+            HdfsOperationAuditor auditor)
     {
         this.location = requireNonNull(location, "location is null");
         this.environment = requireNonNull(environment, "environment is null");
         this.context = requireNonNull(context, "context is null");
         this.openFileCallStat = requireNonNull(openFileCallStat, "openFileCallStat is null");
+        this.auditor = requireNonNull(auditor, "auditor is null");
         this.file = hadoopPath(location);
         this.length = length;
         checkArgument(length == null || length >= 0, "length is negative");
@@ -116,19 +127,21 @@ class HdfsInputFile
     private FSDataInputStream openFile()
             throws IOException
     {
-        openFileCallStat.newCall();
-        FileSystem fileSystem = environment.getFileSystem(context, file);
-        return environment.doAs(context.getIdentity(), () -> {
-            try (TimeStat.BlockTimer _ = openFileCallStat.time()) {
-                return fileSystem.open(file);
-            }
-            catch (IOException e) {
-                openFileCallStat.recordException(e);
-                if (e instanceof FileNotFoundException) {
-                    throw withCause(new FileNotFoundException(toString()), e);
+        return auditor.audit(context, OPEN_READ, location, () -> {
+            openFileCallStat.newCall();
+            FileSystem fileSystem = environment.getFileSystem(context, file);
+            return environment.doAs(context.getIdentity(), () -> {
+                try (TimeStat.BlockTimer _ = openFileCallStat.time()) {
+                    return fileSystem.open(file);
                 }
-                throw new IOException("Open file %s failed: %s".formatted(location, e.getMessage()), e);
-            }
+                catch (IOException e) {
+                    openFileCallStat.recordException(e);
+                    if (e instanceof FileNotFoundException) {
+                        throw withCause(new FileNotFoundException(toString()), e);
+                    }
+                    throw new IOException("Open file %s failed: %s".formatted(location, e.getMessage()), e);
+                }
+            });
         });
     }
 

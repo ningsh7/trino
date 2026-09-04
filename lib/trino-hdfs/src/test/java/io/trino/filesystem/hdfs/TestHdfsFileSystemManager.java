@@ -75,4 +75,32 @@ class TestHdfsFileSystemManager
 
         manager.stop();
     }
+
+    @Test
+    void testAuditConfiguration()
+    {
+        HdfsFileSystemManager manager = new HdfsFileSystemManager(
+                ImmutableMap.<String, String>builder()
+                        .put("hive.hdfs.audit.enabled", "true")
+                        .put("hive.hdfs.audit.read-enabled", "true")
+                        .put("hive.hdfs.audit.list-enabled", "false")
+                        .put("hive.hdfs.audit.path-mode", "HASH")
+                        .put("hive.hdfs.audit.error-message-max-length", "512")
+                        .buildOrThrow(),
+                "test",
+                new TestingConnectorContext());
+
+        try {
+            assertThat(manager.configure().keySet()).containsExactlyInAnyOrder(
+                    "hive.hdfs.audit.enabled",
+                    "hive.hdfs.audit.read-enabled",
+                    "hive.hdfs.audit.list-enabled",
+                    "hive.hdfs.audit.path-mode",
+                    "hive.hdfs.audit.error-message-max-length");
+            assertThat(manager.create()).isNotNull();
+        }
+        finally {
+            manager.stop();
+        }
+    }
 }
