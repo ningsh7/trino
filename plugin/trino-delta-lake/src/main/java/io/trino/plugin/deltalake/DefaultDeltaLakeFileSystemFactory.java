@@ -14,6 +14,7 @@
 package io.trino.plugin.deltalake;
 
 import com.google.inject.Inject;
+import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.plugin.deltalake.metastore.VendedCredentialsHandle;
@@ -40,7 +41,8 @@ public class DefaultDeltaLakeFileSystemFactory
     @Override
     public TrinoFileSystem create(ConnectorSession session, Optional<DeltaLakeTableCredentials> tableCredentials)
     {
-        ConnectorIdentity identity = session.getIdentity();
+        FileSystemContext context = FileSystemContext.of(session);
+        ConnectorIdentity identity = context.identity();
         if (tableCredentials.isPresent()) {
             // Do not include original credentials as they should not be used in vended mode
             ConnectorIdentity identityWithExtraCredentials = ConnectorIdentity.forUser(identity.getUser())
@@ -50,10 +52,10 @@ public class DefaultDeltaLakeFileSystemFactory
                     .withConnectorRole(identity.getConnectorRole())
                     .withExtraCredentials(tableCredentials.get().fileSystemCredentials().asExtraCredentials())
                     .build();
-            return fileSystemFactory.create(identityWithExtraCredentials);
+            return fileSystemFactory.create(context.withIdentity(identityWithExtraCredentials));
         }
 
-        return fileSystemFactory.create(identity);
+        return fileSystemFactory.create(context);
     }
 
     @Override

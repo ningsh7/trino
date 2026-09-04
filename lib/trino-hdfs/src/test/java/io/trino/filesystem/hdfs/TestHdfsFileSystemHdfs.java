@@ -23,6 +23,7 @@ import io.trino.hdfs.HdfsConfigurationInitializer;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.hdfs.TrinoHdfsFileSystemStats;
+import io.trino.hdfs.authentication.FixedUserHdfsAuthentication;
 import io.trino.hdfs.authentication.NoHdfsAuthentication;
 import io.trino.spi.security.ConnectorIdentity;
 import org.apache.hadoop.fs.FileStatus;
@@ -147,6 +148,35 @@ public class TestHdfsFileSystemHdfs
         TrinoFileSystem fileSystem = new HdfsFileSystem(hdfsEnvironment, hdfsContext, new TrinoHdfsFileSystemStats());
 
         assertCreateDirectoryPermission(fileSystem, hdfsEnvironment, (short) 755);
+    }
+
+    @Test
+    void testFixedUserOwnsDirectoriesCreatedForDifferentConnectorIdentities()
+            throws IOException
+    {
+        Location writableRoot = getRootLocation().appendPath("fixed-user-root");
+        fileSystem.createDirectory(writableRoot);
+
+        HdfsEnvironment fixedUserEnvironment = new HdfsEnvironment(
+                hdfsConfiguration,
+                new HdfsConfig(),
+                new FixedUserHdfsAuthentication("hive_service"));
+
+        assertDirectoryOwner(fixedUserEnvironment, "ldap_zhangsan", writableRoot.appendPath("zhangsan-directory"), "hive_service");
+        assertDirectoryOwner(fixedUserEnvironment, "ldap_lisi", writableRoot.appendPath("lisi-directory"), "hive_service");
+    }
+
+    private void assertDirectoryOwner(HdfsEnvironment environment, String trinoUser, Location location, String expectedOwner)
+            throws IOException
+    {
+        HdfsContext context = new HdfsContext(ConnectorIdentity.ofUser(trinoUser));
+        TrinoFileSystem fixedUserFileSystem = new HdfsFileSystem(environment, context, new TrinoHdfsFileSystemStats());
+
+        fixedUserFileSystem.createDirectory(location);
+
+        Path path = new Path(location.toString());
+        FileStatus status = environment.getFileSystem(context, path).getFileStatus(path);
+        assertThat(status.getOwner()).isEqualTo(expectedOwner);
     }
 
     private void assertCreateDirectoryPermission(TrinoFileSystem fileSystem, HdfsEnvironment hdfsEnvironment, short permission)

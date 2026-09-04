@@ -20,6 +20,7 @@ import io.trino.hdfs.HdfsConfigurationInitializer;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.hdfs.authentication.HdfsAuthentication;
+import io.trino.hdfs.authentication.HdfsExecutionIdentity;
 import io.trino.spi.security.ConnectorIdentity;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static io.trino.hdfs.authentication.HdfsExecutionIdentity.Mode.PROCESS_USER;
 import static java.util.Collections.emptySet;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -61,6 +63,12 @@ public class TestHdfsOutputStreamAuthentication
             implements HdfsAuthentication
     {
         private final AtomicInteger invocations = new AtomicInteger();
+
+        @Override
+        public HdfsExecutionIdentity getExecutionIdentity(ConnectorIdentity identity)
+        {
+            return new HdfsExecutionIdentity(identity.getUser(), PROCESS_USER, false);
+        }
 
         @Override
         public <T> T doAs(ConnectorIdentity identity, ExceptionAction<T> action)

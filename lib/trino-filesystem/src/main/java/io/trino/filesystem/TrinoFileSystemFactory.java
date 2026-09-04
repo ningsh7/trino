@@ -20,8 +20,13 @@ public interface TrinoFileSystemFactory
 {
     TrinoFileSystem create(ConnectorIdentity identity);
 
+    default TrinoFileSystem create(FileSystemContext context)
+    {
+        return create(context.identity());
+    }
+
     default TrinoFileSystem create(ConnectorSession session)
     {
-        return create(session.getIdentity());
+        return create(FileSystemContext.of(session));
     }
 }

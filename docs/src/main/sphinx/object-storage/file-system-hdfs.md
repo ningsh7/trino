@@ -92,8 +92,20 @@ authentication. The following properties are available:
 * - `hive.hdfs.authentication.type`
   - Configure the authentication to use no authentication (`NONE`) or Kerberos
     authentication (`KERBEROS`). Defaults to `NONE`.
+* - `hive.hdfs.identity.mode`
+  - Configure the identity used for HDFS operations. Supported values are the
+    direct Trino service identity (`PROCESS`), a configured user (`FIXED`), or
+    the Trino end-user identity (`IMPERSONATE`). With `NONE` authentication,
+    `PROCESS` uses the process login user. With `KERBEROS` authentication, it
+    uses the configured Trino principal. Defaults to `PROCESS`.
+* - `hive.hdfs.fixed-user`
+  - User name for HDFS operations when `hive.hdfs.identity.mode=FIXED`. The
+    fixed identity mode is supported only with
+    `hive.hdfs.authentication.type=NONE`.
 * - `hive.hdfs.impersonation.enabled`
-  - Enable HDFS end-user impersonation. Defaults to `false`. See details in
+  - Enable HDFS end-user impersonation. Defaults to `false`. This is the legacy
+    equivalent of `hive.hdfs.identity.mode=IMPERSONATE` and cannot be enabled
+    with the `FIXED` identity mode. See details in
     [](hdfs-security-impersonation).
 * - `hive.hdfs.trino.principal`
   - The Kerberos principal Trino uses when connecting to HDFS. Example:
@@ -135,6 +147,11 @@ HDFS as `nobody`. You can override this username by setting the
 
 The `hive` user generally works, since Hive is often started with the `hive`
 user and this user has access to the Hive warehouse.
+
+To configure the HDFS user independently for each catalog, use the `FIXED`
+identity mode instead of setting the JVM-wide `HADOOP_USER_NAME` system
+property. This mode applies to HDFS access from the Delta Lake, Hive, Hudi, and
+Iceberg connectors.
 
 (hdfs-security-impersonation)=
 ### HDFS impersonation
@@ -214,6 +231,33 @@ hive.hdfs.authentication.type=NONE
 The default authentication type for HDFS is `NONE`. When the authentication type
 is `NONE`, Trino connects to HDFS using Hadoop's simple authentication
 mechanism. Kerberos is not used.
+
+(hive-security-simple-fixed-user)=
+### `NONE` authentication with a fixed user
+
+```text
+hive.hdfs.authentication.type=NONE
+hive.hdfs.identity.mode=FIXED
+hive.hdfs.fixed-user=hive_service
+hive.hdfs.impersonation.enabled=false
+```
+
+When using `NONE` authentication with the `FIXED` identity mode, all HDFS
+operations for the catalog run as the user configured with
+`hive.hdfs.fixed-user`, regardless of the Trino user running the query. Trino
+continues to use the original Trino user for access control decisions.
+
+This mode uses Hadoop simple authentication and does not require Hadoop
+`proxyuser` configuration. The configured fixed user must have the required
+HDFS permissions or ACLs. Hadoop simple authentication does not
+cryptographically authenticate this user and should only be used in a trusted
+environment.
+
+The HDFS identity is independent from the identity used to connect to a Thrift
+Hive metastore. Configure the latter separately with
+`hive.metastore.username`, and keep
+`hive.metastore.thrift.impersonation.enabled=false` when the metastore must use
+that configured user. See [](hive-thrift-metastore).
 
 (hive-security-simple-impersonation)=
 ### `NONE` authentication with impersonation

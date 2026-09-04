@@ -469,7 +469,7 @@ public class IcebergSplitSource
         }
         Domain fullFileModifiedTimeDomain = fileModifiedTimeDomain.intersect(getFileModifiedTimeDomain(dynamicFilterPredicate));
         if (!fullFileModifiedTimeDomain.isAll()) {
-            long fileModifiedTime = getModificationTime(fileScanTask.file().location(), fileSystemFactory.create(session.getIdentity(), tableCredentials));
+            long fileModifiedTime = getModificationTime(fileScanTask.file().location(), fileSystemFactory.create(session, tableCredentials));
             if (!fullFileModifiedTimeDomain.includesNullableValue(packDateTimeWithZone(fileModifiedTime, UTC_KEY))) {
                 return true;
             }

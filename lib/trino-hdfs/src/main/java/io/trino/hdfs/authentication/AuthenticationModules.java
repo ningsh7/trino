@@ -51,6 +51,13 @@ public final class AuthenticationModules
         };
     }
 
+    public static Module fixedUserHdfsAuthenticationModule(String fixedUser)
+    {
+        return binder -> binder
+                .bind(HdfsAuthentication.class)
+                .toInstance(new FixedUserHdfsAuthentication(fixedUser));
+    }
+
     public static Module kerberosHdfsAuthenticationModule()
     {
         return new Module()

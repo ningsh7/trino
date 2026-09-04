@@ -122,7 +122,7 @@ public class DefaultDeletionVectorWriter
         ExistingDeletes existingDeletes = getExistingDeletesByMetadataOnly(icebergTable, snapshotId, deletionVectorBuilders.keySet());
 
         // merge existing deletion vectors into the new ones
-        TrinoFileSystem fileSystem = fileSystemFactory.create(session.getIdentity(), IcebergTableCredentials.forFileIO(icebergTable.io()));
+        TrinoFileSystem fileSystem = fileSystemFactory.create(session, IcebergTableCredentials.forFileIO(icebergTable.io()));
         existingDeletes.deletionVectors().forEach((dataFilePath, deleteFile) -> {
             try (TrinoInput input = fileSystem.newInputFile(Location.of(deleteFile.location()), deleteFile.fileSizeInBytes()).newInput()) {
                 Slice data = input.readFully(deleteFile.contentOffset(), toIntExact(deleteFile.contentSizeInBytes()));

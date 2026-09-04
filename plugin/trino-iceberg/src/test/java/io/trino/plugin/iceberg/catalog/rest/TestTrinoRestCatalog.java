@@ -17,6 +17,7 @@ import com.google.common.cache.Cache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.trino.cache.EvictableCacheBuilder;
+import io.trino.filesystem.FileSystemContext;
 import io.trino.metastore.TableInfo;
 import io.trino.plugin.hive.orc.OrcReaderConfig;
 import io.trino.plugin.hive.orc.OrcWriterConfig;
@@ -72,6 +73,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
@@ -325,6 +327,36 @@ public class TestTrinoRestCatalog
         catalog.listNamespaces(SESSION);
 
         assertThat(sessionIdCounts.values()).singleElement(INTEGER).isGreaterThan(1);
+    }
+
+    @Test
+    public void testRestSessionContextPreservesFileSystemContext()
+    {
+        AtomicReference<Object> wrappedIdentity = new AtomicReference<>();
+        RESTSessionCatalog restSessionCatalog = new NamespaceDeletedDuringRecursiveListingCatalog()
+        {
+            @Override
+            public List<Namespace> listNamespaces(SessionContext context, Namespace namespace)
+            {
+                wrappedIdentity.set(context.wrappedIdentity());
+                return super.listNamespaces(context, namespace);
+            }
+        };
+        ConnectorSession session = TestingConnectorSession.builder()
+                .setIdentity(ConnectorIdentity.ofUser("ldap_user"))
+                .setSource("test_source")
+                .setTraceToken("test_trace_token")
+                .build();
+        TrinoRestCatalog catalog = createTrinoRestCatalog(false, restSessionCatalog, true, false);
+
+        catalog.listNamespaces(session);
+
+        assertThat(wrappedIdentity.get()).isInstanceOfSatisfying(FileSystemContext.class, context -> {
+            assertThat(context.identity()).isEqualTo(session.getIdentity());
+            assertThat(context.queryId()).contains(session.getQueryId());
+            assertThat(context.source()).contains("test_source");
+            assertThat(context.traceToken()).contains("test_trace_token");
+        });
     }
 
     @Test

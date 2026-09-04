@@ -19,6 +19,8 @@ import io.trino.spi.security.ConnectorIdentity;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 
+import static io.trino.hdfs.authentication.HdfsExecutionIdentity.Mode.KERBEROS_SERVICE_PRINCIPAL;
+import static io.trino.hdfs.authentication.HdfsExecutionIdentity.Mode.PROCESS_USER;
 import static java.util.Objects.requireNonNull;
 
 public class DirectHdfsAuthentication
@@ -30,6 +32,18 @@ public class DirectHdfsAuthentication
     public DirectHdfsAuthentication(@ForHdfs HadoopAuthentication hadoopAuthentication)
     {
         this.hadoopAuthentication = requireNonNull(hadoopAuthentication);
+    }
+
+    @Override
+    public HdfsExecutionIdentity getExecutionIdentity(ConnectorIdentity identity)
+    {
+        requireNonNull(identity, "identity is null");
+        var userGroupInformation = hadoopAuthentication.getUserGroupInformation();
+        boolean stronglyAuthenticated = userGroupInformation.hasKerberosCredentials();
+        return new HdfsExecutionIdentity(
+                userGroupInformation.getUserName(),
+                stronglyAuthenticated ? KERBEROS_SERVICE_PRINCIPAL : PROCESS_USER,
+                stronglyAuthenticated);
     }
 
     @Override

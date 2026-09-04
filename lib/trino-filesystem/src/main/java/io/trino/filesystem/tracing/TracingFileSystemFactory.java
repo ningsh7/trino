@@ -14,6 +14,7 @@
 package io.trino.filesystem.tracing;
 
 import io.opentelemetry.api.trace.Tracer;
+import io.trino.filesystem.FileSystemContext;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoFileSystemFactory;
 import io.trino.spi.connector.ConnectorSession;
@@ -42,6 +43,12 @@ public final class TracingFileSystemFactory
     @Override
     public TrinoFileSystem create(ConnectorSession session)
     {
-        return new TracingFileSystem(tracer, delegate.create(session));
+        return create(FileSystemContext.of(session));
+    }
+
+    @Override
+    public TrinoFileSystem create(FileSystemContext context)
+    {
+        return new TracingFileSystem(tracer, delegate.create(context));
     }
 }

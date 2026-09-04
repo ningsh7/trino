@@ -19,6 +19,9 @@ import java.io.IOException;
 
 public interface HdfsAuthentication
 {
+    HdfsExecutionIdentity getExecutionIdentity(ConnectorIdentity identity)
+            throws IOException;
+
     <T> T doAs(ConnectorIdentity identity, ExceptionAction<T> action)
             throws IOException;
 

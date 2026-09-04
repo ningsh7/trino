@@ -21,6 +21,8 @@ import org.apache.hadoop.security.UserGroupInformation;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 
+import static io.trino.hdfs.authentication.HdfsExecutionIdentity.Mode.END_USER_IMPERSONATION;
+import static io.trino.hdfs.authentication.HdfsExecutionIdentity.Mode.KERBEROS_END_USER_IMPERSONATION;
 import static java.util.Objects.requireNonNull;
 
 public class ImpersonatingHdfsAuthentication
@@ -34,6 +36,17 @@ public class ImpersonatingHdfsAuthentication
     {
         this.hadoopAuthentication = requireNonNull(hadoopAuthentication);
         this.userNameProvider = requireNonNull(userNameProvider);
+    }
+
+    @Override
+    public HdfsExecutionIdentity getExecutionIdentity(ConnectorIdentity identity)
+    {
+        requireNonNull(identity, "identity is null");
+        boolean stronglyAuthenticated = hadoopAuthentication.getUserGroupInformation().hasKerberosCredentials();
+        return new HdfsExecutionIdentity(
+                userNameProvider.get(identity),
+                stronglyAuthenticated ? KERBEROS_END_USER_IMPERSONATION : END_USER_IMPERSONATION,
+                stronglyAuthenticated);
     }
 
     @Override

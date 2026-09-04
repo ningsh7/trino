@@ -15,17 +15,29 @@ package io.trino.hdfs.authentication;
 
 import io.airlift.configuration.Config;
 import io.airlift.configuration.ConfigDescription;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotNull;
+
+import java.util.Optional;
 
 public class HdfsAuthenticationConfig
 {
     private HdfsAuthenticationType hdfsAuthenticationType = HdfsAuthenticationType.NONE;
+    private HdfsIdentityMode hdfsIdentityMode = HdfsIdentityMode.PROCESS;
+    private String hdfsFixedUser;
     private boolean hdfsImpersonationEnabled;
 
     public enum HdfsAuthenticationType
     {
         NONE,
         KERBEROS,
+    }
+
+    public enum HdfsIdentityMode
+    {
+        PROCESS,
+        FIXED,
+        IMPERSONATE,
     }
 
     @NotNull
@@ -42,6 +54,34 @@ public class HdfsAuthenticationConfig
         return this;
     }
 
+    @NotNull
+    public HdfsIdentityMode getHdfsIdentityMode()
+    {
+        return hdfsIdentityMode;
+    }
+
+    @Config("hive.hdfs.identity.mode")
+    @ConfigDescription("Identity selection mode for HDFS operations")
+    public HdfsAuthenticationConfig setHdfsIdentityMode(HdfsIdentityMode hdfsIdentityMode)
+    {
+        this.hdfsIdentityMode = hdfsIdentityMode;
+        return this;
+    }
+
+    @NotNull
+    public Optional<String> getHdfsFixedUser()
+    {
+        return Optional.ofNullable(hdfsFixedUser);
+    }
+
+    @Config("hive.hdfs.fixed-user")
+    @ConfigDescription("User name for HDFS operations when hive.hdfs.identity.mode is FIXED")
+    public HdfsAuthenticationConfig setHdfsFixedUser(String hdfsFixedUser)
+    {
+        this.hdfsFixedUser = hdfsFixedUser;
+        return this;
+    }
+
     public boolean isHdfsImpersonationEnabled()
     {
         return hdfsImpersonationEnabled;
@@ -53,5 +93,34 @@ public class HdfsAuthenticationConfig
     {
         this.hdfsImpersonationEnabled = hdfsImpersonationEnabled;
         return this;
+    }
+
+    public HdfsIdentityMode getEffectiveHdfsIdentityMode()
+    {
+        if (hdfsIdentityMode == HdfsIdentityMode.PROCESS && hdfsImpersonationEnabled) {
+            return HdfsIdentityMode.IMPERSONATE;
+        }
+        return hdfsIdentityMode;
+    }
+
+    @AssertTrue(message = "hive.hdfs.fixed-user must be configured with a non-blank value if and only if hive.hdfs.identity.mode is FIXED")
+    public boolean isFixedUserConfigValid()
+    {
+        boolean fixedUserConfigured = getHdfsFixedUser()
+                .map(user -> !user.isBlank())
+                .orElse(false);
+        return (hdfsIdentityMode == HdfsIdentityMode.FIXED) == fixedUserConfigured;
+    }
+
+    @AssertTrue(message = "hive.hdfs.identity.mode=FIXED is only supported with hive.hdfs.authentication.type=NONE")
+    public boolean isFixedUserAuthenticationTypeValid()
+    {
+        return hdfsIdentityMode != HdfsIdentityMode.FIXED || hdfsAuthenticationType == HdfsAuthenticationType.NONE;
+    }
+
+    @AssertTrue(message = "hive.hdfs.impersonation.enabled cannot be enabled when hive.hdfs.identity.mode is FIXED")
+    public boolean isImpersonationConfigValid()
+    {
+        return hdfsIdentityMode != HdfsIdentityMode.FIXED || !hdfsImpersonationEnabled;
     }
 }
