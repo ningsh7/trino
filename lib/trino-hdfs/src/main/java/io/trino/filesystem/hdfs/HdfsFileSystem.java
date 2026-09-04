@@ -20,6 +20,8 @@ import io.trino.filesystem.Location;
 import io.trino.filesystem.TrinoFileSystem;
 import io.trino.filesystem.TrinoInputFile;
 import io.trino.filesystem.TrinoOutputFile;
+import io.trino.filesystem.hdfs.audit.HdfsOperationAuditor;
+import io.trino.filesystem.hdfs.audit.HdfsOperationAuditor.BatchContext;
 import io.trino.hdfs.HdfsContext;
 import io.trino.hdfs.HdfsEnvironment;
 import io.trino.hdfs.TrinoHdfsFileSystemStats;
@@ -47,12 +49,18 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static io.trino.filesystem.hdfs.HadoopPaths.hadoopPath;
 import static io.trino.filesystem.hdfs.HdfsFileIterator.listedLocation;
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.CREATE_DIRECTORY;
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.DELETE_DIRECTORY;
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.DELETE_FILE;
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.DELETE_FILES;
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.LIST_DIRECTORIES;
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.LIST_FILES;
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.RENAME_DIRECTORY;
+import static io.trino.filesystem.hdfs.audit.HdfsOperation.RENAME_FILE;
 import static io.trino.hdfs.FileSystemUtils.getRawFileSystem;
 import static java.util.Objects.requireNonNull;
 import static java.util.UUID.randomUUID;
 import static java.util.stream.Collectors.groupingBy;
-import static java.util.stream.Collectors.mapping;
-import static java.util.stream.Collectors.toList;
 
 class HdfsFileSystem
         implements TrinoFileSystem
@@ -60,38 +68,45 @@ class HdfsFileSystem
     private final HdfsEnvironment environment;
     private final HdfsContext context;
     private final TrinoHdfsFileSystemStats stats;
+    private final HdfsOperationAuditor auditor;
 
     private final Map<FileSystem, Boolean> hierarchicalFileSystemCache = new IdentityHashMap<>();
 
     public HdfsFileSystem(HdfsEnvironment environment, HdfsContext context, TrinoHdfsFileSystemStats stats)
     {
+        this(environment, context, stats, HdfsOperationAuditor.noop());
+    }
+
+    public HdfsFileSystem(HdfsEnvironment environment, HdfsContext context, TrinoHdfsFileSystemStats stats, HdfsOperationAuditor auditor)
+    {
         this.environment = requireNonNull(environment, "environment is null");
         this.context = requireNonNull(context, "context is null");
         this.stats = requireNonNull(stats, "stats is null");
+        this.auditor = requireNonNull(auditor, "auditor is null");
     }
 
     @Override
     public TrinoInputFile newInputFile(Location location)
     {
-        return new HdfsInputFile(location, null, null, environment, context, stats.getOpenFileCalls());
+        return new HdfsInputFile(location, null, null, environment, context, stats.getOpenFileCalls(), auditor);
     }
 
     @Override
     public TrinoInputFile newInputFile(Location location, long length)
     {
-        return new HdfsInputFile(location, length, null, environment, context, stats.getOpenFileCalls());
+        return new HdfsInputFile(location, length, null, environment, context, stats.getOpenFileCalls(), auditor);
     }
 
     @Override
     public TrinoInputFile newInputFile(Location location, long length, Instant lastModified)
     {
-        return new HdfsInputFile(location, length, lastModified, environment, context, stats.getOpenFileCalls());
+        return new HdfsInputFile(location, length, lastModified, environment, context, stats.getOpenFileCalls(), auditor);
     }
 
     @Override
     public TrinoOutputFile newOutputFile(Location location)
     {
-        return new HdfsOutputFile(location, environment, context, stats.getCreateFileCalls());
+        return new HdfsOutputFile(location, environment, context, stats.getCreateFileCalls(), auditor);
     }
 
     @Override
@@ -99,26 +114,28 @@ class HdfsFileSystem
             throws IOException
     {
         location.verifyValidFileLocation();
-        stats.getDeleteFileCalls().newCall();
-        Path file = hadoopPath(location);
-        FileSystem fileSystem = environment.getFileSystem(context, file);
-        environment.doAs(context.getIdentity(), () -> {
-            try (TimeStat.BlockTimer _ = stats.getDeleteFileCalls().time()) {
-                if (hierarchical(fileSystem, location) && !fileSystem.getFileStatus(file).isFile()) {
-                    throw new IOException("Location is not a file");
+        auditor.audit(context, DELETE_FILE, location, () -> {
+            stats.getDeleteFileCalls().newCall();
+            Path file = hadoopPath(location);
+            FileSystem fileSystem = environment.getFileSystem(context, file);
+            return environment.doAs(context.getIdentity(), () -> {
+                try (TimeStat.BlockTimer _ = stats.getDeleteFileCalls().time()) {
+                    if (hierarchical(fileSystem, location) && !fileSystem.getFileStatus(file).isFile()) {
+                        throw new IOException("Location is not a file");
+                    }
+                    if (!fileSystem.delete(file, false)) {
+                        throw new IOException("delete failed");
+                    }
+                    return null;
                 }
-                if (!fileSystem.delete(file, false)) {
-                    throw new IOException("delete failed");
+                catch (FileNotFoundException _) {
+                    return null;
                 }
-                return null;
-            }
-            catch (FileNotFoundException _) {
-                return null;
-            }
-            catch (IOException e) {
-                stats.getDeleteFileCalls().recordException(e);
-                throw new IOException("Delete file %s failed: %s".formatted(location, e.getMessage()), e);
-            }
+                catch (IOException e) {
+                    stats.getDeleteFileCalls().recordException(e);
+                    throw new IOException("Delete file %s failed: %s".formatted(location, e.getMessage()), e);
+                }
+            });
         });
     }
 
@@ -126,22 +143,28 @@ class HdfsFileSystem
     public void deleteFiles(Collection<Location> locations)
             throws IOException
     {
-        Map<Path, List<Path>> pathsGroupedByDirectory = locations.stream().collect(
-                groupingBy(
-                        location -> hadoopPath(location.parentDirectory()),
-                        mapping(HadoopPaths::hadoopPath, toList())));
-        for (Entry<Path, List<Path>> directoryWithPaths : pathsGroupedByDirectory.entrySet()) {
-            FileSystem rawFileSystem = getRawFileSystem(environment.getFileSystem(context, directoryWithPaths.getKey()));
+        if (locations.isEmpty()) {
+            return;
+        }
+
+        BatchContext batchContext = new BatchContext(randomUUID().toString(), locations.size());
+        Map<Path, List<Location>> locationsGroupedByDirectory = locations.stream()
+                .collect(groupingBy(location -> hadoopPath(location.parentDirectory())));
+        for (Entry<Path, List<Location>> directoryWithLocations : locationsGroupedByDirectory.entrySet()) {
+            FileSystem rawFileSystem = getRawFileSystem(environment.getFileSystem(context, directoryWithLocations.getKey()));
             environment.doAs(context.getIdentity(), () -> {
-                for (Path path : directoryWithPaths.getValue()) {
-                    stats.getDeleteFileCalls().newCall();
-                    try (TimeStat.BlockTimer _ = stats.getDeleteFileCalls().time()) {
-                        rawFileSystem.delete(path, false);
-                    }
-                    catch (IOException e) {
-                        stats.getDeleteFileCalls().recordException(e);
-                        throw e;
-                    }
+                for (Location location : directoryWithLocations.getValue()) {
+                    auditor.audit(context, DELETE_FILES, location, Optional.empty(), Optional.of(batchContext), () -> {
+                        stats.getDeleteFileCalls().newCall();
+                        try (TimeStat.BlockTimer _ = stats.getDeleteFileCalls().time()) {
+                            rawFileSystem.delete(hadoopPath(location), false);
+                        }
+                        catch (IOException e) {
+                            stats.getDeleteFileCalls().recordException(e);
+                            throw e;
+                        }
+                        return null;
+                    });
                 }
                 return null;
             });
@@ -152,35 +175,37 @@ class HdfsFileSystem
     public void deleteDirectory(Location location)
             throws IOException
     {
-        stats.getDeleteDirectoryCalls().newCall();
-        Path directory = hadoopPath(location);
-        FileSystem fileSystem = environment.getFileSystem(context, directory);
-        environment.doAs(context.getIdentity(), () -> {
-            try (TimeStat.BlockTimer _ = stats.getDeleteDirectoryCalls().time()) {
-                // recursive delete on the root directory must be handled manually
-                if (location.path().isEmpty()) {
-                    for (FileStatus status : fileSystem.listStatus(directory)) {
-                        if (!fileSystem.delete(status.getPath(), true) && fileSystem.exists(status.getPath())) {
-                            throw new IOException("delete failed");
+        auditor.audit(context, DELETE_DIRECTORY, location, () -> {
+            stats.getDeleteDirectoryCalls().newCall();
+            Path directory = hadoopPath(location);
+            FileSystem fileSystem = environment.getFileSystem(context, directory);
+            return environment.doAs(context.getIdentity(), () -> {
+                try (TimeStat.BlockTimer _ = stats.getDeleteDirectoryCalls().time()) {
+                    // recursive delete on the root directory must be handled manually
+                    if (location.path().isEmpty()) {
+                        for (FileStatus status : fileSystem.listStatus(directory)) {
+                            if (!fileSystem.delete(status.getPath(), true) && fileSystem.exists(status.getPath())) {
+                                throw new IOException("delete failed");
+                            }
                         }
+                        return null;
+                    }
+                    if (hierarchical(fileSystem, location) && !fileSystem.getFileStatus(directory).isDirectory()) {
+                        throw new IOException("Location is not a directory");
+                    }
+                    if (!fileSystem.delete(directory, true) && fileSystem.exists(directory)) {
+                        throw new IOException("delete failed");
                     }
                     return null;
                 }
-                if (hierarchical(fileSystem, location) && !fileSystem.getFileStatus(directory).isDirectory()) {
-                    throw new IOException("Location is not a directory");
+                catch (FileNotFoundException e) {
+                    return null;
                 }
-                if (!fileSystem.delete(directory, true) && fileSystem.exists(directory)) {
-                    throw new IOException("delete failed");
+                catch (IOException e) {
+                    stats.getDeleteDirectoryCalls().recordException(e);
+                    throw new IOException("Delete directory %s failed %s".formatted(location, e.getMessage()), e);
                 }
-                return null;
-            }
-            catch (FileNotFoundException e) {
-                return null;
-            }
-            catch (IOException e) {
-                stats.getDeleteDirectoryCalls().recordException(e);
-                throw new IOException("Delete directory %s failed %s".formatted(location, e.getMessage()), e);
-            }
+            });
         });
     }
 
@@ -191,29 +216,31 @@ class HdfsFileSystem
         source.verifyValidFileLocation();
         target.verifyValidFileLocation();
 
-        stats.getRenameFileCalls().newCall();
-        Path sourcePath = hadoopPath(source);
-        Path targetPath = hadoopPath(target);
-        FileSystem fileSystem = environment.getFileSystem(context, sourcePath);
+        auditor.audit(context, RENAME_FILE, source, target, () -> {
+            stats.getRenameFileCalls().newCall();
+            Path sourcePath = hadoopPath(source);
+            Path targetPath = hadoopPath(target);
+            FileSystem fileSystem = environment.getFileSystem(context, sourcePath);
 
-        environment.doAs(context.getIdentity(), () -> {
-            try (TimeStat.BlockTimer _ = stats.getRenameFileCalls().time()) {
-                if (!fileSystem.getFileStatus(sourcePath).isFile()) {
-                    throw new IOException("Source location is not a file");
+            return environment.doAs(context.getIdentity(), () -> {
+                try (TimeStat.BlockTimer _ = stats.getRenameFileCalls().time()) {
+                    if (!fileSystem.getFileStatus(sourcePath).isFile()) {
+                        throw new IOException("Source location is not a file");
+                    }
+                    // local file system allows renaming onto an existing file
+                    if (fileSystem.exists(targetPath)) {
+                        throw new IOException("Target location already exists");
+                    }
+                    if (!fileSystem.rename(sourcePath, targetPath)) {
+                        throw new IOException("rename failed");
+                    }
+                    return null;
                 }
-                // local file system allows renaming onto an existing file
-                if (fileSystem.exists(targetPath)) {
-                    throw new IOException("Target location already exists");
+                catch (IOException e) {
+                    stats.getRenameFileCalls().recordException(e);
+                    throw new IOException("File rename from %s to %s failed: %s".formatted(source, target, e.getMessage()), e);
                 }
-                if (!fileSystem.rename(sourcePath, targetPath)) {
-                    throw new IOException("rename failed");
-                }
-                return null;
-            }
-            catch (IOException e) {
-                stats.getRenameFileCalls().recordException(e);
-                throw new IOException("File rename from %s to %s failed: %s".formatted(source, target, e.getMessage()), e);
-            }
+            });
         });
     }
 
@@ -222,20 +249,22 @@ class HdfsFileSystem
     public FileIterator listFiles(Location location)
             throws IOException
     {
-        stats.getListFilesCalls().newCall();
-        Path directory = hadoopPath(location);
-        FileSystem fileSystem = environment.getFileSystem(context, directory);
-        return environment.doAs(context.getIdentity(), () -> {
-            try (TimeStat.BlockTimer _ = stats.getListFilesCalls().time()) {
-                return new HdfsFileIterator(location, directory, fileSystem.listFiles(directory, true));
-            }
-            catch (FileNotFoundException e) {
-                return FileIterator.empty();
-            }
-            catch (IOException e) {
-                stats.getListFilesCalls().recordException(e);
-                throw new IOException("List files for %s failed: %s".formatted(location, e.getMessage()), e);
-            }
+        return auditor.audit(context, LIST_FILES, location, () -> {
+            stats.getListFilesCalls().newCall();
+            Path directory = hadoopPath(location);
+            FileSystem fileSystem = environment.getFileSystem(context, directory);
+            return environment.doAs(context.getIdentity(), () -> {
+                try (TimeStat.BlockTimer _ = stats.getListFilesCalls().time()) {
+                    return new HdfsFileIterator(location, directory, fileSystem.listFiles(directory, true));
+                }
+                catch (FileNotFoundException e) {
+                    return FileIterator.empty();
+                }
+                catch (IOException e) {
+                    stats.getListFilesCalls().recordException(e);
+                    throw new IOException("List files for %s failed: %s".formatted(location, e.getMessage()), e);
+                }
+            });
         });
     }
 
@@ -282,29 +311,31 @@ class HdfsFileSystem
     public void createDirectory(Location location)
             throws IOException
     {
-        stats.getCreateDirectoryCalls().newCall();
-        Path directory = hadoopPath(location);
-        FileSystem fileSystem = environment.getFileSystem(context, directory);
+        auditor.audit(context, CREATE_DIRECTORY, location, () -> {
+            stats.getCreateDirectoryCalls().newCall();
+            Path directory = hadoopPath(location);
+            FileSystem fileSystem = environment.getFileSystem(context, directory);
 
-        environment.doAs(context.getIdentity(), () -> {
-            if (!hierarchical(fileSystem, location)) {
+            return environment.doAs(context.getIdentity(), () -> {
+                if (!hierarchical(fileSystem, location)) {
+                    return null;
+                }
+                Optional<FsPermission> permission = environment.getNewDirectoryPermissions();
+                try (TimeStat.BlockTimer _ = stats.getCreateDirectoryCalls().time()) {
+                    if (!fileSystem.mkdirs(directory, permission.orElse(null))) {
+                        throw new IOException("mkdirs failed");
+                    }
+                    // explicitly set permission since the default umask overrides it on creation
+                    if (permission.isPresent()) {
+                        fileSystem.setPermission(directory, permission.get());
+                    }
+                }
+                catch (IOException e) {
+                    stats.getCreateDirectoryCalls().recordException(e);
+                    throw new IOException("Create directory %s failed: %s".formatted(location, e.getMessage()), e);
+                }
                 return null;
-            }
-            Optional<FsPermission> permission = environment.getNewDirectoryPermissions();
-            try (TimeStat.BlockTimer _ = stats.getCreateDirectoryCalls().time()) {
-                if (!fileSystem.mkdirs(directory, permission.orElse(null))) {
-                    throw new IOException("mkdirs failed");
-                }
-                // explicitly set permission since the default umask overrides it on creation
-                if (permission.isPresent()) {
-                    fileSystem.setPermission(directory, permission.get());
-                }
-            }
-            catch (IOException e) {
-                stats.getCreateDirectoryCalls().recordException(e);
-                throw new IOException("Create directory %s failed: %s".formatted(location, e.getMessage()), e);
-            }
-            return null;
+            });
         });
     }
 
@@ -312,31 +343,33 @@ class HdfsFileSystem
     public void renameDirectory(Location source, Location target)
             throws IOException
     {
-        stats.getRenameDirectoryCalls().newCall();
-        Path sourcePath = hadoopPath(source);
-        Path targetPath = hadoopPath(target);
-        FileSystem fileSystem = environment.getFileSystem(context, sourcePath);
+        auditor.audit(context, RENAME_DIRECTORY, source, target, () -> {
+            stats.getRenameDirectoryCalls().newCall();
+            Path sourcePath = hadoopPath(source);
+            Path targetPath = hadoopPath(target);
+            FileSystem fileSystem = environment.getFileSystem(context, sourcePath);
 
-        environment.doAs(context.getIdentity(), () -> {
-            try (TimeStat.BlockTimer _ = stats.getRenameDirectoryCalls().time()) {
-                if (!hierarchical(fileSystem, source)) {
-                    throw new IOException("Non-hierarchical file system '%s' does not support directory renames".formatted(fileSystem.getScheme()));
+            return environment.doAs(context.getIdentity(), () -> {
+                try (TimeStat.BlockTimer _ = stats.getRenameDirectoryCalls().time()) {
+                    if (!hierarchical(fileSystem, source)) {
+                        throw new IOException("Non-hierarchical file system '%s' does not support directory renames".formatted(fileSystem.getScheme()));
+                    }
+                    if (!fileSystem.getFileStatus(sourcePath).isDirectory()) {
+                        throw new IOException("Source location is not a directory");
+                    }
+                    if (fileSystem.exists(targetPath)) {
+                        throw new IOException("Target location already exists");
+                    }
+                    if (!fileSystem.rename(sourcePath, targetPath)) {
+                        throw new IOException("rename failed");
+                    }
+                    return null;
                 }
-                if (!fileSystem.getFileStatus(sourcePath).isDirectory()) {
-                    throw new IOException("Source location is not a directory");
+                catch (IOException e) {
+                    stats.getRenameDirectoryCalls().recordException(e);
+                    throw new IOException("Directory rename from %s to %s failed: %s".formatted(source, target, e.getMessage()), e);
                 }
-                if (fileSystem.exists(targetPath)) {
-                    throw new IOException("Target location already exists");
-                }
-                if (!fileSystem.rename(sourcePath, targetPath)) {
-                    throw new IOException("rename failed");
-                }
-                return null;
-            }
-            catch (IOException e) {
-                stats.getRenameDirectoryCalls().recordException(e);
-                throw new IOException("Directory rename from %s to %s failed: %s".formatted(source, target, e.getMessage()), e);
-            }
+            });
         });
     }
 
@@ -344,31 +377,33 @@ class HdfsFileSystem
     public Set<Location> listDirectories(Location location)
             throws IOException
     {
-        stats.getListDirectoriesCalls().newCall();
-        Path directory = hadoopPath(location);
-        FileSystem fileSystem = environment.getFileSystem(context, directory);
-        return environment.doAs(context.getIdentity(), () -> {
-            try (TimeStat.BlockTimer _ = stats.getListDirectoriesCalls().time()) {
-                FileStatus[] files = fileSystem.listStatus(directory);
-                if (files.length == 0) {
+        return auditor.audit(context, LIST_DIRECTORIES, location, () -> {
+            stats.getListDirectoriesCalls().newCall();
+            Path directory = hadoopPath(location);
+            FileSystem fileSystem = environment.getFileSystem(context, directory);
+            return environment.doAs(context.getIdentity(), () -> {
+                try (TimeStat.BlockTimer _ = stats.getListDirectoriesCalls().time()) {
+                    FileStatus[] files = fileSystem.listStatus(directory);
+                    if (files.length == 0) {
+                        return ImmutableSet.of();
+                    }
+                    if (files[0].getPath().equals(directory)) {
+                        throw new IOException("Location is a file, not a directory: " + location);
+                    }
+                    return Stream.of(files)
+                            .filter(FileStatus::isDirectory)
+                            .map(file -> listedLocation(location, directory, file.getPath()))
+                            .map(file -> file.appendSuffix("/"))
+                            .collect(toImmutableSet());
+                }
+                catch (FileNotFoundException e) {
                     return ImmutableSet.of();
                 }
-                if (files[0].getPath().equals(directory)) {
-                    throw new IOException("Location is a file, not a directory: " + location);
+                catch (IOException e) {
+                    stats.getListDirectoriesCalls().recordException(e);
+                    throw new IOException("List directories for %s failed: %s".formatted(location, e.getMessage()), e);
                 }
-                return Stream.of(files)
-                        .filter(FileStatus::isDirectory)
-                        .map(file -> listedLocation(location, directory, file.getPath()))
-                        .map(file -> file.appendSuffix("/"))
-                        .collect(toImmutableSet());
-            }
-            catch (FileNotFoundException e) {
-                return ImmutableSet.of();
-            }
-            catch (IOException e) {
-                stats.getListDirectoriesCalls().recordException(e);
-                throw new IOException("List directories for %s failed: %s".formatted(location, e.getMessage()), e);
-            }
+            });
         });
     }
 
@@ -403,16 +438,17 @@ class HdfsFileSystem
                     return Optional.empty();
                 }
 
-                Optional<FsPermission> permission = environment.getNewDirectoryPermissions();
-                if (!fileSystem.mkdirs(temporaryPath, permission.orElse(null))) {
-                    throw new IOException("mkdirs failed for " + temporaryPath);
-                }
-                // explicitly set permission since the default umask overrides it on creation
-                if (permission.isPresent()) {
-                    fileSystem.setPermission(temporaryPath, permission.get());
-                }
-
-                return Optional.of(temporaryLocation);
+                return auditor.audit(context, CREATE_DIRECTORY, temporaryLocation, () -> {
+                    Optional<FsPermission> permission = environment.getNewDirectoryPermissions();
+                    if (!fileSystem.mkdirs(temporaryPath, permission.orElse(null))) {
+                        throw new IOException("mkdirs failed for " + temporaryPath);
+                    }
+                    // explicitly set permission since the default umask overrides it on creation
+                    if (permission.isPresent()) {
+                        fileSystem.setPermission(temporaryPath, permission.get());
+                    }
+                    return Optional.of(temporaryLocation);
+                });
             }
             catch (IOException e) {
                 stats.getCreateTemporaryDirectoryCalls().recordException(e);
