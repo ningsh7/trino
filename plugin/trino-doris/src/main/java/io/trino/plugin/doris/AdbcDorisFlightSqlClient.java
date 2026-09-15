@@ -15,6 +15,13 @@ package io.trino.plugin.doris;
 
 import com.google.inject.Inject;
 import io.airlift.units.Duration;
+import io.trino.plugin.base.audit.RemoteOperationAuditContext;
+import io.trino.plugin.base.audit.RemoteOperationAuditEvent.Operation;
+import io.trino.plugin.base.audit.RemoteOperationAuditEvent.Protocol;
+import io.trino.plugin.base.audit.RemoteOperationAuditEvent.StatementKind;
+import io.trino.plugin.base.audit.RemoteOperationAuditScope;
+import io.trino.plugin.base.audit.RemoteOperationAuditTarget;
+import io.trino.plugin.base.audit.RemoteOperationAuditor;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorSession;
 import jakarta.annotation.PreDestroy;
@@ -55,20 +62,27 @@ public class AdbcDorisFlightSqlClient
     private final FlightSqlStreamOpenerFactory streamOpenerFactory;
     private final Supplier<List<String>> feHostsSupplier;
     private final DorisFlightSqlConnectionPool connectionPool;
+    private final RemoteOperationAuditor auditor;
     private final Set<String> activeQueries = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<String, QueryResources> queryResources = new ConcurrentHashMap<>();
     private volatile List<String> cachedFeHosts;
     private volatile String preferredFeHost;
 
-    @Inject
     public AdbcDorisFlightSqlClient(DorisConfig config, DorisQueryBuilder queryBuilder, DorisFlightSqlPortResolver portResolver)
+    {
+        this(config, queryBuilder, portResolver, RemoteOperationAuditor.noop());
+    }
+
+    @Inject
+    public AdbcDorisFlightSqlClient(DorisConfig config, DorisQueryBuilder queryBuilder, DorisFlightSqlPortResolver portResolver, RemoteOperationAuditor auditor)
     {
         this(config,
                 queryBuilder,
                 portResolver,
-                new AdbcFlightSqlStreamOpenerFactory(config),
+                new AdbcFlightSqlStreamOpenerFactory(config, auditor),
                 () -> DorisFeEndpoints.getHosts(config),
-                createConnectionPool(config, new AdbcFlightSqlStreamOpenerFactory(config)));
+                createConnectionPool(config, new AdbcFlightSqlStreamOpenerFactory(config, auditor)),
+                auditor);
     }
 
     private static DorisFlightSqlConnectionPool createConnectionPool(DorisConfig config, FlightSqlStreamOpenerFactory streamOpenerFactory)
@@ -90,6 +104,19 @@ public class AdbcDorisFlightSqlClient
             Supplier<List<String>> feHostsSupplier,
             DorisFlightSqlConnectionPool connectionPool)
     {
+        this(config, queryBuilder, portResolver, streamOpenerFactory, feHostsSupplier, connectionPool, RemoteOperationAuditor.noop());
+    }
+
+    AdbcDorisFlightSqlClient(
+            DorisConfig config,
+            DorisQueryBuilder queryBuilder,
+            DorisFlightSqlPortResolver portResolver,
+            FlightSqlStreamOpenerFactory streamOpenerFactory,
+            Supplier<List<String>> feHostsSupplier,
+            DorisFlightSqlConnectionPool connectionPool,
+            RemoteOperationAuditor auditor)
+    {
+        this.auditor = requireNonNull(auditor, "auditor is null");
         requireNonNull(config, "config is null");
         this.queryBuilder = requireNonNull(queryBuilder, "queryBuilder is null");
         this.portResolver = requireNonNull(portResolver, "portResolver is null");
@@ -124,10 +151,11 @@ public class AdbcDorisFlightSqlClient
                 split.tabletIds());
 
         QueryResources reusableQueryResources = getQueryResources(session);
+        RemoteOperationAuditContext auditContext = auditor.context(session);
         List<String> failures = new ArrayList<>();
         for (String feHost : prioritizedFeHosts()) {
             try {
-                DorisFlightSqlResult result = openStream(reusableQueryResources, feHost, flightSqlPort, sql);
+                DorisFlightSqlResult result = openStream(reusableQueryResources, feHost, flightSqlPort, sql, auditContext);
                 preferredFeHost = feHost;
                 return result;
             }
@@ -202,14 +230,14 @@ public class AdbcDorisFlightSqlClient
         return queryResources.computeIfAbsent(queryId, _ -> new QueryResources());
     }
 
-    private DorisFlightSqlResult openStream(QueryResources reusableQueryResources, String feHost, int flightSqlPort, String sql)
+    private DorisFlightSqlResult openStream(QueryResources reusableQueryResources, String feHost, int flightSqlPort, String sql, RemoteOperationAuditContext auditContext)
     {
         // Try connection pool first (cross-query reuse)
         if (connectionPool != null) {
             Optional<DorisFlightSqlConnectionPool.PooledConnection> pooledConnection = connectionPool.tryAcquire(feHost, flightSqlPort);
             if (pooledConnection.isPresent()) {
                 try {
-                    DorisFlightSqlResult result = pooledConnection.get().openStream(sql);
+                    DorisFlightSqlResult result = pooledConnection.get().openStream(sql, auditContext);
                     return new ManagedDorisFlightSqlResult(result, pooledConnection.get()::close);
                 }
                 catch (RuntimeException e) {
@@ -221,19 +249,19 @@ public class AdbcDorisFlightSqlClient
 
         // Fall back to query-scoped reuse or standalone
         if (reusableQueryResources == null) {
-            return openStandaloneStream(feHost, flightSqlPort, sql);
+            return openStandaloneStream(feHost, flightSqlPort, sql, auditContext);
         }
-        return reusableQueryResources.openStream(feHost, flightSqlPort, Thread.currentThread().threadId(), sql);
+        return reusableQueryResources.openStream(feHost, flightSqlPort, Thread.currentThread().threadId(), sql, auditContext);
     }
 
-    private DorisFlightSqlResult openStandaloneStream(String feHost, int flightSqlPort, String sql)
+    private DorisFlightSqlResult openStandaloneStream(String feHost, int flightSqlPort, String sql, RemoteOperationAuditContext auditContext)
     {
         // If connection pool is enabled, create a pooled connection
         if (connectionPool != null) {
             DorisFlightSqlConnectionPool.PooledConnection pooledConnection = connectionPool.createConnection(feHost, flightSqlPort);
             if (pooledConnection.tryAcquire()) {
                 try {
-                    DorisFlightSqlResult result = pooledConnection.openStream(sql);
+                    DorisFlightSqlResult result = pooledConnection.openStream(sql, auditContext);
                     return new ManagedDorisFlightSqlResult(result, pooledConnection::close);
                 }
                 catch (RuntimeException e) {
@@ -248,7 +276,7 @@ public class AdbcDorisFlightSqlClient
         FlightSqlStreamOpener opener = streamOpenerFactory.create(feHost, flightSqlPort);
 
         try {
-            return new ManagedDorisFlightSqlResult(opener.openStream(sql), opener::close);
+            return new ManagedDorisFlightSqlResult(opener.openStream(sql, auditContext), opener::close);
         }
         catch (RuntimeException e) {
             closeQuietly(opener);
@@ -292,6 +320,11 @@ public class AdbcDorisFlightSqlClient
     {
         DorisFlightSqlResult openStream(String sql);
 
+        default DorisFlightSqlResult openStream(String sql, RemoteOperationAuditContext auditContext)
+        {
+            return openStream(sql);
+        }
+
         long getMemoryUsage();
 
         @Override
@@ -304,16 +337,16 @@ public class AdbcDorisFlightSqlClient
         private final ConcurrentMap<ReusableExecutorKey, ReusableFlightSqlExecutor> executors = new ConcurrentHashMap<>();
         private final AtomicBoolean closed = new AtomicBoolean();
 
-        public DorisFlightSqlResult openStream(String feHost, int flightSqlPort, long threadId, String sql)
+        public DorisFlightSqlResult openStream(String feHost, int flightSqlPort, long threadId, String sql, RemoteOperationAuditContext auditContext)
         {
             if (closed.get()) {
-                return openStandaloneStream(feHost, flightSqlPort, sql);
+                return openStandaloneStream(feHost, flightSqlPort, sql, auditContext);
             }
 
             ReusableExecutorKey key = new ReusableExecutorKey(threadId, feHost, flightSqlPort);
             while (true) {
                 if (closed.get()) {
-                    return openStandaloneStream(feHost, flightSqlPort, sql);
+                    return openStandaloneStream(feHost, flightSqlPort, sql, auditContext);
                 }
 
                 ReusableFlightSqlExecutor executor = executors.get(key);
@@ -321,7 +354,7 @@ public class AdbcDorisFlightSqlClient
                     ReusableFlightSqlExecutor createdExecutor = new ReusableFlightSqlExecutor(streamOpenerFactory.create(feHost, flightSqlPort));
                     if (closed.get()) {
                         closeQuietly(createdExecutor);
-                        return openStandaloneStream(feHost, flightSqlPort, sql);
+                        return openStandaloneStream(feHost, flightSqlPort, sql, auditContext);
                     }
 
                     ReusableFlightSqlExecutor existingExecutor = executors.putIfAbsent(key, createdExecutor);
@@ -331,7 +364,7 @@ public class AdbcDorisFlightSqlClient
                     }
                 }
 
-                Optional<DorisFlightSqlResult> reusableResult = executor.tryOpenStream(sql);
+                Optional<DorisFlightSqlResult> reusableResult = executor.tryOpenStream(sql, auditContext);
                 if (reusableResult.isPresent()) {
                     return reusableResult.orElseThrow();
                 }
@@ -341,7 +374,7 @@ public class AdbcDorisFlightSqlClient
                     continue;
                 }
 
-                return openStandaloneStream(feHost, flightSqlPort, sql);
+                return openStandaloneStream(feHost, flightSqlPort, sql, auditContext);
             }
         }
 
@@ -371,7 +404,7 @@ public class AdbcDorisFlightSqlClient
             this.opener = requireNonNull(opener, "opener is null");
         }
 
-        public Optional<DorisFlightSqlResult> tryOpenStream(String sql)
+        public Optional<DorisFlightSqlResult> tryOpenStream(String sql, RemoteOperationAuditContext auditContext)
         {
             if (!inUse.compareAndSet(false, true)) {
                 return Optional.empty();
@@ -383,7 +416,7 @@ public class AdbcDorisFlightSqlClient
             }
 
             try {
-                return Optional.of(new ManagedDorisFlightSqlResult(opener.openStream(sql), this::release));
+                return Optional.of(new ManagedDorisFlightSqlResult(opener.openStream(sql, auditContext), this::release));
             }
             catch (RuntimeException e) {
                 inUse.set(false);
@@ -485,16 +518,18 @@ public class AdbcDorisFlightSqlClient
             implements FlightSqlStreamOpenerFactory
     {
         private final DorisConfig config;
+        private final RemoteOperationAuditor auditor;
 
-        private AdbcFlightSqlStreamOpenerFactory(DorisConfig config)
+        private AdbcFlightSqlStreamOpenerFactory(DorisConfig config, RemoteOperationAuditor auditor)
         {
             this.config = requireNonNull(config, "config is null");
+            this.auditor = requireNonNull(auditor, "auditor is null");
         }
 
         @Override
         public FlightSqlStreamOpener create(String feHost, int flightSqlPort)
         {
-            return new AdbcFlightSqlStreamOpener(config, feHost, flightSqlPort);
+            return new AdbcFlightSqlStreamOpener(config, feHost, flightSqlPort, auditor);
         }
     }
 
@@ -504,11 +539,22 @@ public class AdbcDorisFlightSqlClient
         private final BufferAllocator allocator;
         private final AdbcDatabase database;
         private final AdbcConnection connection;
+        private final RemoteOperationAuditor auditor;
+        private final RemoteOperationAuditTarget auditTarget;
         private final AtomicBoolean closed = new AtomicBoolean();
 
-        private AdbcFlightSqlStreamOpener(DorisConfig config, String feHost, int flightSqlPort)
+        private AdbcFlightSqlStreamOpener(DorisConfig config, String feHost, int flightSqlPort, RemoteOperationAuditor auditor)
         {
             requireNonNull(config, "config is null");
+            this.auditor = requireNonNull(auditor, "auditor is null");
+            this.auditTarget = new RemoteOperationAuditTarget(
+                    Protocol.DORIS_FLIGHT_SQL,
+                    null,
+                    config.getUsername().orElse(null),
+                    null,
+                    null,
+                    Location.forGrpcInsecure(feHost, flightSqlPort).getUri().toString(),
+                    null);
 
             BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
             AdbcDatabase database = null;
@@ -539,6 +585,12 @@ public class AdbcDorisFlightSqlClient
         @Override
         public DorisFlightSqlResult openStream(String sql)
         {
+            return openStream(sql, auditor.context(null));
+        }
+
+        @Override
+        public DorisFlightSqlResult openStream(String sql, RemoteOperationAuditContext auditContext)
+        {
             if (closed.get()) {
                 throw new TrinoException(GENERIC_INTERNAL_ERROR, "Doris Flight SQL executor is closed");
             }
@@ -549,7 +601,7 @@ public class AdbcDorisFlightSqlClient
             try {
                 statement = connection.createStatement();
                 statement.setSqlQuery(sql);
-                queryResult = statement.executeQuery();
+                queryResult = executeQuery(statement, sql, auditContext, auditTarget, auditor);
                 ArrowReader reader = queryResult.getReader();
                 return new AdbcStreamResult(this, statement, queryResult, reader);
             }
@@ -590,6 +642,26 @@ public class AdbcDorisFlightSqlClient
             if (failure != null) {
                 throw new TrinoException(GENERIC_INTERNAL_ERROR, "Failed to close Doris Flight SQL executor", failure);
             }
+        }
+    }
+
+    static AdbcStatement.QueryResult executeQuery(
+            AdbcStatement statement,
+            String sql,
+            RemoteOperationAuditContext context,
+            RemoteOperationAuditTarget target,
+            RemoteOperationAuditor auditor)
+            throws AdbcException
+    {
+        RemoteOperationAuditScope scope = auditor.begin(context, () -> target, Operation.OPEN_READ, StatementKind.SQL, sql, null);
+        try {
+            AdbcStatement.QueryResult result = statement.executeQuery();
+            scope.succeeded();
+            return result;
+        }
+        catch (AdbcException | RuntimeException e) {
+            scope.failed(e);
+            throw e;
         }
     }
 

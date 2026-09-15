@@ -13,6 +13,11 @@
  */
 package io.trino.plugin.doris;
 
+import io.airlift.units.Duration;
+import io.trino.plugin.base.audit.RemoteOperationAuditConfig;
+import io.trino.plugin.base.audit.RemoteOperationAuditContext;
+import io.trino.plugin.base.audit.RemoteOperationAuditStats;
+import io.trino.plugin.base.audit.RemoteOperationAuditor;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.type.TimeZoneKey;
@@ -24,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -31,6 +37,65 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 final class TestAdbcDorisFlightSqlClient
 {
+    @Test
+    void testPooledConnectionDoesNotRetainPreviousQueryContext()
+    {
+        TestingFlightSqlStreamOpenerFactory factory = new TestingFlightSqlStreamOpenerFactory();
+        DorisConfig config = new DorisConfig();
+        var auditor = new RemoteOperationAuditor(
+                new RemoteOperationAuditConfig().setEnabled(true),
+                _ -> {},
+                new RemoteOperationAuditStats(),
+                "catalog",
+                "doris",
+                "worker");
+        var pool = new DorisFlightSqlConnectionPool(factory, 2, new Duration(1, TimeUnit.MINUTES));
+        var client = new AdbcDorisFlightSqlClient(
+                config,
+                new DorisQueryBuilder(),
+                () -> 9401,
+                factory,
+                () -> List.of("fe1"),
+                pool,
+                auditor);
+        try {
+            client.openStream(session("first"), tableHandle(), split(), columns()).close();
+            client.openStream(session("second"), tableHandle(), split(), columns()).close();
+            assertThat(factory.openers()).hasSize(1);
+            assertThat(factory.openers().getFirst().contexts).extracting(RemoteOperationAuditContext::queryId)
+                    .containsExactly("first", "second");
+        }
+        finally {
+            client.close();
+        }
+        assertThat(factory.openers().getFirst().closeCalls()).isEqualTo(1);
+    }
+
+    @Test
+    void testPoolReplacementAndShutdownRespectConnectionOwnership()
+    {
+        TestingFlightSqlStreamOpenerFactory factory = new TestingFlightSqlStreamOpenerFactory();
+        var pool = new DorisFlightSqlConnectionPool(factory, 1, new Duration(1, TimeUnit.MINUTES));
+        try {
+            var first = pool.createConnection("fe1", 9401);
+            var second = pool.createConnection("fe1", 9401);
+            assertThat(first.tryAcquire()).isTrue();
+            assertThat(second.tryAcquire()).isTrue();
+            first.close();
+            second.close();
+            assertThat(factory.openers().getFirst().closeCalls()).isEqualTo(1);
+            var borrowed = pool.tryAcquire("fe1", 9401).orElseThrow();
+            assertThat(borrowed).isSameAs(second);
+            pool.close();
+            assertThat(factory.openers().getLast().closeCalls()).isZero();
+            borrowed.close();
+            assertThat(factory.openers().getLast().closeCalls()).isEqualTo(1);
+        }
+        finally {
+            pool.close();
+        }
+    }
+
     @Test
     void testReusesExecutorWithinActiveQueryOnSameThread()
     {
@@ -226,6 +291,14 @@ final class TestAdbcDorisFlightSqlClient
         private final AtomicBoolean closed = new AtomicBoolean();
         private int openCalls;
         private int closeCalls;
+        private final List<RemoteOperationAuditContext> contexts = new ArrayList<>();
+
+        @Override
+        public DorisFlightSqlResult openStream(String sql, RemoteOperationAuditContext context)
+        {
+            contexts.add(context);
+            return openStream(sql);
+        }
 
         private TestingFlightSqlStreamOpener(String host, int port)
         {

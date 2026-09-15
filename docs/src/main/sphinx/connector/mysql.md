@@ -90,6 +90,12 @@ creates a catalog named `sales` using the configured connector.
 ```{include} jdbc-common-configurations.fragment
 ```
 
+### Remote operation auditing
+
+Use [remote operation auditing](/admin/remote-operation-audit) to record
+database operations with the Trino query ID, end user, database account,
+SQL template, and result on the Trino nodes.
+
 ```{include} query-comment-format.fragment
 ```
 

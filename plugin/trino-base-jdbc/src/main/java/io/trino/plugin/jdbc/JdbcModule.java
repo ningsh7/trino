@@ -20,10 +20,12 @@ import com.google.inject.Provider;
 import com.google.inject.Scopes;
 import com.google.inject.multibindings.Multibinder;
 import io.airlift.configuration.AbstractConfigurationAwareModule;
+import io.trino.plugin.base.audit.RemoteOperationAuditModule;
 import io.trino.plugin.base.cache.identity.IdentityCacheMapping;
 import io.trino.plugin.base.cache.identity.SingletonIdentityCacheMapping;
 import io.trino.plugin.base.mapping.IdentifierMappingModule;
 import io.trino.plugin.base.session.SessionPropertiesProvider;
+import io.trino.plugin.jdbc.audit.AuditingConnectionFactory;
 import io.trino.plugin.jdbc.logging.RemoteQueryModifierModule;
 import io.trino.plugin.jdbc.procedure.ExecuteProcedure;
 import io.trino.plugin.jdbc.procedure.FlushJdbcMetadataCacheProcedure;
@@ -49,6 +51,18 @@ import static java.util.concurrent.Executors.newCachedThreadPool;
 public class JdbcModule
         extends AbstractConfigurationAwareModule
 {
+    private final String connectorName;
+
+    public JdbcModule()
+    {
+        this("jdbc");
+    }
+
+    public JdbcModule(String connectorName)
+    {
+        this.connectorName = requireNonNull(connectorName, "connectorName is null");
+    }
+
     @Override
     public void setup(Binder binder)
     {
@@ -56,6 +70,7 @@ public class JdbcModule
         install(new IdentifierMappingModule());
         install(new RemoteQueryModifierModule());
         install(new RetryingModule());
+        install(new RemoteOperationAuditModule(connectorName));
 
         newOptionalBinder(binder, ConnectorAccessControl.class);
         newOptionalBinder(binder, QueryBuilder.class).setDefault().to(DefaultQueryBuilder.class).in(Scopes.SINGLETON);
@@ -93,7 +108,7 @@ public class JdbcModule
 
         newSetBinder(binder, ConnectorTableFunction.class);
 
-        binder.bind(ConnectionFactory.class).annotatedWith(ForLazyConnectionFactory.class).to(Key.get(RetryingConnectionFactory.class)).in(Scopes.SINGLETON);
+        binder.bind(ConnectionFactory.class).annotatedWith(ForLazyConnectionFactory.class).to(AuditingConnectionFactory.class).in(Scopes.SINGLETON);
 
         if (buildConfigObject(QueryConfig.class).isReuseConnection()) {
             install(new ReusableConnectionFactoryModule());

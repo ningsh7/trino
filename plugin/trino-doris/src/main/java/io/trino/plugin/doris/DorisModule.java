@@ -17,6 +17,9 @@ import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Scopes;
 import com.google.inject.multibindings.Multibinder;
+import io.trino.plugin.base.audit.RemoteOperationAuditModule;
+import io.trino.plugin.base.jmx.MBeanServerModule;
+import org.weakref.jmx.guice.MBeanModule;
 
 import static io.airlift.configuration.ConfigBinder.configBinder;
 
@@ -26,6 +29,9 @@ public class DorisModule
     @Override
     public void configure(Binder binder)
     {
+        binder.install(new RemoteOperationAuditModule("doris"));
+        binder.install(new MBeanServerModule());
+        binder.install(new MBeanModule());
         Multibinder<DorisQueryEventListener> queryEventListeners = Multibinder.newSetBinder(binder, DorisQueryEventListener.class);
 
         binder.bind(DorisConnector.class).in(Scopes.SINGLETON);

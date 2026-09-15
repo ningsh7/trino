@@ -46,7 +46,7 @@ public class RedshiftConnectorFactory
         Bootstrap app = new Bootstrap(
                 "io.trino.bootstrap.catalog." + catalogName,
                 new ConnectorContextModule(catalogName, context),
-                new JdbcModule(),
+                new JdbcModule(getName()),
                 new CredentialProviderModule(),
                 new ExtraCredentialsBasedIdentityCacheMappingModule(),
                 new RedshiftClientModule());

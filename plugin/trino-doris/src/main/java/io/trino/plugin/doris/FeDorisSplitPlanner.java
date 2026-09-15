@@ -17,7 +17,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
+import io.trino.plugin.base.audit.RemoteOperationAuditContext;
+import io.trino.plugin.base.audit.RemoteOperationAuditEvent.Operation;
+import io.trino.plugin.base.audit.RemoteOperationAuditEvent.Protocol;
+import io.trino.plugin.base.audit.RemoteOperationAuditEvent.StatementKind;
+import io.trino.plugin.base.audit.RemoteOperationAuditScope;
+import io.trino.plugin.base.audit.RemoteOperationAuditTarget;
+import io.trino.plugin.base.audit.RemoteOperationAuditor;
 import io.trino.spi.TrinoException;
+import io.trino.spi.connector.ConnectorSession;
 
 import java.io.IOException;
 import java.net.URI;
@@ -43,13 +51,20 @@ public class FeDorisSplitPlanner
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final String basicAuthHeader;
+    private final RemoteOperationAuditor auditor;
 
     private volatile List<String> cachedFeEndpoints;
     private volatile String preferredFeEndpoint;
 
-    @Inject
     public FeDorisSplitPlanner(DorisConfig config, DorisQueryBuilder queryBuilder)
     {
+        this(config, queryBuilder, RemoteOperationAuditor.noop());
+    }
+
+    @Inject
+    public FeDorisSplitPlanner(DorisConfig config, DorisQueryBuilder queryBuilder, RemoteOperationAuditor auditor)
+    {
+        this.auditor = requireNonNull(auditor, "auditor is null");
         this.config = requireNonNull(config, "config is null");
         this.queryBuilder = requireNonNull(queryBuilder, "queryBuilder is null");
         this.httpClient = HttpClient.newHttpClient();
@@ -60,8 +75,14 @@ public class FeDorisSplitPlanner
     @Override
     public List<DorisSplit> planSplits(DorisTableHandle tableHandle)
     {
+        return planSplits(null, tableHandle);
+    }
+
+    @Override
+    public List<DorisSplit> planSplits(ConnectorSession session, DorisTableHandle tableHandle)
+    {
         String sql = queryBuilder.buildSplitPlanningSql(tableHandle);
-        DorisQueryPlanResponse queryPlan = fetchQueryPlan(tableHandle, sql);
+        DorisQueryPlanResponse queryPlan = fetchQueryPlan(tableHandle, sql, auditor.context(session));
         List<DorisSplit> splits = buildSplits(tableHandle, queryPlan);
         return consolidateSplits(tableHandle, splits);
     }
@@ -163,7 +184,7 @@ public class FeDorisSplitPlanner
         return beToTablets;
     }
 
-    private DorisQueryPlanResponse fetchQueryPlan(DorisTableHandle tableHandle, String sql)
+    private DorisQueryPlanResponse fetchQueryPlan(DorisTableHandle tableHandle, String sql, RemoteOperationAuditContext context)
     {
         List<String> failures = new ArrayList<>();
         for (String feEndpoint : prioritizedFeEndpoints()) {
@@ -177,20 +198,44 @@ public class FeDorisSplitPlanner
                     .POST(HttpRequest.BodyPublishers.ofString(queryPlanRequestBody(sql), StandardCharsets.UTF_8))
                     .build();
 
+            RemoteOperationAuditScope scope = auditor.begin(
+                    context,
+                    () -> new RemoteOperationAuditTarget(
+                            Protocol.DORIS_FE_HTTP,
+                            null,
+                            config.getUsername().orElse(null),
+                            null,
+                            tableHandle.remoteSchemaName(),
+                            uri.toString(),
+                            null),
+                    Operation.PLAN_SPLITS,
+                    StatementKind.SQL,
+                    sql,
+                    null);
+            Integer httpStatus = null;
             try {
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                httpStatus = response.statusCode();
                 if (response.statusCode() != 200) {
+                    scope.complete(null, httpStatus, new IOException("HTTP request failed"));
                     failures.add("%s -> HTTP %s".formatted(feEndpoint, response.statusCode()));
                     continue;
                 }
                 preferredFeEndpoint = feEndpoint;
-                return parseQueryPlan(response.body());
+                DorisQueryPlanResponse plan = parseQueryPlan(response.body());
+                scope.complete(null, httpStatus, null);
+                return plan;
             }
             catch (IOException | InterruptedException e) {
+                scope.complete(null, httpStatus, e);
                 if (e instanceof InterruptedException) {
                     Thread.currentThread().interrupt();
                 }
                 failures.add("%s -> %s".formatted(feEndpoint, e.getMessage()));
+            }
+            catch (RuntimeException e) {
+                scope.complete(null, httpStatus, e);
+                throw e;
             }
         }
 

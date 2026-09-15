@@ -13,9 +13,16 @@
  */
 package io.trino.plugin.doris;
 
+import io.trino.spi.connector.ConnectorSession;
+
 import java.util.List;
 
 public interface DorisSplitPlanner
 {
     List<DorisSplit> planSplits(DorisTableHandle tableHandle);
+
+    default List<DorisSplit> planSplits(ConnectorSession session, DorisTableHandle tableHandle)
+    {
+        return planSplits(tableHandle);
+    }
 }

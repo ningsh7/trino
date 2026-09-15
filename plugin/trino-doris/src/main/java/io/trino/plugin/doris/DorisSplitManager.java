@@ -65,7 +65,7 @@ public class DorisSplitManager
                     Optional.empty())));
         }
 
-        List<DorisSplit> splits = splitPlanner.planSplits(dorisTableHandle);
+        List<DorisSplit> splits = splitPlanner.planSplits(session, dorisTableHandle);
         return new FixedSplitSource(splits);
     }
 }

@@ -14,6 +14,8 @@
 package io.trino.plugin.doris;
 
 import com.google.inject.Inject;
+import io.trino.plugin.base.audit.RemoteOperationAuditor;
+import io.trino.plugin.base.audit.jdbc.AuditingJdbc;
 import io.trino.spi.TrinoException;
 import io.trino.spi.connector.ConnectorSession;
 import jakarta.annotation.PreDestroy;
@@ -36,20 +38,33 @@ public class DorisJdbcConnectionFactory
     private final Driver driver;
     private final String jdbcUrl;
     private final Properties connectionProperties;
+    private final RemoteOperationAuditor auditor;
     private final Map<String, Connection> queryConnections = new ConcurrentHashMap<>();
     private final Set<String> activeQueries = ConcurrentHashMap.newKeySet();
 
-    @Inject
     public DorisJdbcConnectionFactory(DorisConfig config)
+    {
+        this(config, RemoteOperationAuditor.noop());
+    }
+
+    @Inject
+    public DorisJdbcConnectionFactory(DorisConfig config, RemoteOperationAuditor auditor)
     {
         this(createDriver(),
                 requireNonNull(config, "config is null").getJdbcUrl()
                         .orElseThrow(() -> new IllegalArgumentException("doris.jdbc-url must be set for Doris FE JDBC access")),
-                createConnectionProperties(config));
+                createConnectionProperties(config),
+                auditor);
     }
 
     DorisJdbcConnectionFactory(Driver driver, String jdbcUrl, Properties connectionProperties)
     {
+        this(driver, jdbcUrl, connectionProperties, RemoteOperationAuditor.noop());
+    }
+
+    DorisJdbcConnectionFactory(Driver driver, String jdbcUrl, Properties connectionProperties, RemoteOperationAuditor auditor)
+    {
+        this.auditor = requireNonNull(auditor, "auditor is null");
         this.driver = requireNonNull(driver, "driver is null");
         this.jdbcUrl = requireNonNull(jdbcUrl, "jdbcUrl is null");
         this.connectionProperties = new Properties();
@@ -59,7 +74,7 @@ public class DorisJdbcConnectionFactory
     public Connection openConnection()
             throws SQLException
     {
-        return openPhysicalConnection();
+        return openPhysicalConnection(null);
     }
 
     public Connection openConnection(ConnectorSession session)
@@ -80,7 +95,7 @@ public class DorisJdbcConnectionFactory
             closeQuietly(cachedConnection);
         }
 
-        return new CachedConnection(queryId, openPhysicalConnection());
+        return new CachedConnection(queryId, openPhysicalConnection(session));
     }
 
     @Override
@@ -105,7 +120,7 @@ public class DorisJdbcConnectionFactory
         queryConnections.clear();
     }
 
-    private Connection openPhysicalConnection()
+    private Connection openPhysicalConnection(ConnectorSession session)
             throws SQLException
     {
         // Using the driver directly avoids plugin classloader registration issues with DriverManager.
@@ -117,7 +132,7 @@ public class DorisJdbcConnectionFactory
             throw new SQLException("MySQL driver refused Doris JDBC URL: " + jdbcUrl);
         }
         connection.setReadOnly(true);
-        return connection;
+        return AuditingJdbc.wrap(connection, auditor.context(session), auditor);
     }
 
     private static Driver createDriver()

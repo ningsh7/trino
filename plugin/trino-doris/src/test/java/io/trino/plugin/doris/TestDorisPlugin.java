@@ -33,7 +33,8 @@ final class TestDorisPlugin
                         "test",
                         Map.of(
                                 "bootstrap.quiet", "true",
-                                "doris.jdbc-url", "jdbc:mysql://127.0.0.1:9030"),
+                                "doris.jdbc-url", "jdbc:mysql://127.0.0.1:9030",
+                                "remote-operation-audit.enabled", "true"),
                         new TestingConnectorContext())
                 .shutdown();
     }

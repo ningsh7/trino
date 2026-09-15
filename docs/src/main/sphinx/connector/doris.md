@@ -17,6 +17,13 @@ To connect to Doris, you need:
   JDBC, and Flight SQL endpoints.
 - Doris credentials with permission to read metadata and query data.
 
+## Remote operation auditing
+
+Use [remote operation auditing](/admin/remote-operation-audit) to correlate
+Doris JDBC metadata access, FE HTTP planning, and Flight SQL execution with
+the original Trino user and query. Configure `remote-operation-audit.enabled=true`
+in the catalog to enable structured JSON events on the Trino nodes.
+
 ## Connector architecture
 
 The connector uses three Doris interfaces:

@@ -13,15 +13,24 @@
  */
 package io.trino.plugin.doris;
 
+import io.trino.plugin.base.audit.RemoteOperationAuditConfig;
+import io.trino.plugin.base.audit.RemoteOperationAuditEvent;
+import io.trino.plugin.base.audit.RemoteOperationAuditStats;
+import io.trino.plugin.base.audit.RemoteOperationAuditor;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.security.ConnectorIdentity;
 import io.trino.spi.type.TimeZoneKey;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Proxy;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.Driver;
 import java.sql.DriverPropertyInfo;
+import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Properties;
@@ -32,6 +41,43 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 final class TestDorisJdbcConnectionFactory
 {
+    @Test
+    void testAuditsReusedAndBackgroundConnections()
+            throws Exception
+    {
+        List<RemoteOperationAuditEvent> events = new ArrayList<>();
+        var auditor = new RemoteOperationAuditor(
+                new RemoteOperationAuditConfig().setEnabled(true),
+                events::add,
+                new RemoteOperationAuditStats(),
+                "company_doris",
+                "doris",
+                "worker");
+        TestingDriver driver = new TestingDriver();
+        DorisJdbcConnectionFactory factory = new DorisJdbcConnectionFactory(driver, "jdbc:mysql://fe:9030", new Properties(), auditor);
+        try {
+            for (ConnectorSession session : List.of(session("first"), session("first"), session("second"))) {
+                try (Connection connection = factory.openConnection(session);
+                        Statement statement = connection.createStatement()) {
+                    statement.executeUpdate("SELECT 1");
+                }
+            }
+            try (Connection connection = factory.openConnection();
+                    Statement statement = connection.createStatement()) {
+                statement.executeUpdate("SELECT 1");
+            }
+            assertThat(events).hasSize(4);
+            assertThat(events).extracting(RemoteOperationAuditEvent::queryId).containsExactly("first", "first", "second", null);
+            assertThat(events.getFirst().connectionId()).isEqualTo(events.get(1).connectionId());
+            assertThat(events.get(2).connectionId()).isNotEqualTo(events.getFirst().connectionId());
+            assertThat(events.getLast().origin()).isEqualTo(RemoteOperationAuditEvent.Origin.BACKGROUND);
+            assertThat(events).allSatisfy(event -> assertThat(event.executionUser()).isEqualTo("source_user"));
+        }
+        finally {
+            factory.close();
+        }
+    }
+
     @Test
     void testReusesConnectionWithinSameQuery()
             throws Exception
@@ -285,6 +331,24 @@ final class TestDorisJdbcConnectionFactory
 
         @Override
         public void setReadOnly(boolean readOnly) {}
+
+        @Override
+        public Statement createStatement()
+        {
+            return (Statement) Proxy.newProxyInstance(
+                    Statement.class.getClassLoader(),
+                    new Class<?>[] {Statement.class},
+                    (_, method, _) -> method.getName().equals("executeUpdate") ? 1 : null);
+        }
+
+        @Override
+        public DatabaseMetaData getMetaData()
+        {
+            return (DatabaseMetaData) Proxy.newProxyInstance(
+                    DatabaseMetaData.class.getClassLoader(),
+                    new Class<?>[] {DatabaseMetaData.class},
+                    (_, method, _) -> method.getName().equals("getUserName") ? "source_user" : null);
+        }
 
         @Override
         public boolean isClosed()
