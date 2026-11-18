@@ -62,6 +62,7 @@ public final class JdbcPageSource
     private final ObjectReadFunction[] objectReadFunctions;
 
     private final JdbcClient jdbcClient;
+    private final String queryId;
     private final ExecutorService executor;
     private final Connection connection;
     private final PreparedStatement statement;
@@ -77,6 +78,7 @@ public final class JdbcPageSource
     public JdbcPageSource(JdbcClient jdbcClient, ExecutorService executor, ConnectorSession session, JdbcSplit split, BaseJdbcConnectorTableHandle table, List<JdbcColumnHandle> columnHandles)
     {
         this.jdbcClient = requireNonNull(jdbcClient, "jdbcClient is null");
+        this.queryId = session.getQueryId();
         this.executor = requireNonNull(executor, "executor is null");
         this.columnHandles = ImmutableList.copyOf(columnHandles);
 
@@ -283,6 +285,15 @@ public final class JdbcPageSource
 
     private RuntimeException handleSqlException(Exception e)
     {
+        // AuditingConnectionFactory covers execute, but not ResultSet fetch/decode. Do not log vendor messages or row values.
+        log.debug(
+                "queryId=%s phase=read rows=%s elapsedNanos=%s exception=%s sqlState=%s vendorCode=%s",
+                queryId,
+                completedPositions,
+                readTimeNanos.get(),
+                e.getClass().getName(),
+                e instanceof SQLException sqlException ? sqlException.getSQLState() : null,
+                e instanceof SQLException sqlException ? sqlException.getErrorCode() : null);
         try {
             close();
         }

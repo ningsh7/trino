@@ -205,6 +205,12 @@
         </artifact>
     </artifactSet>
 
+    <artifactSet to="plugin/xcloud">
+        <artifact id="${project.groupId}:trino-xcloud:zip:${project.version}">
+            <unpack />
+        </artifact>
+    </artifactSet>
+
     <artifactSet to="plugin/mysql">
         <artifact id="${project.groupId}:trino-mysql:zip:${project.version}">
             <unpack />

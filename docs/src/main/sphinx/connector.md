@@ -32,6 +32,7 @@ MariaDB         <connector/mariadb>
 Memory          <connector/memory>
 MongoDB         <connector/mongodb>
 MySQL           <connector/mysql>
+XCloud          <connector/xcloud>
 OpenSearch      <connector/opensearch>
 Oracle          <connector/oracle>
 Pinot           <connector/pinot>

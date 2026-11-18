@@ -145,6 +145,7 @@ MODULE_TO_SUITES = {
     },
     "plugin/trino-exchange-filesystem": {"SuiteFaultTolerant"},
     "plugin/trino-example-jdbc": set(),
+    "plugin/trino-xcloud": set(),
     "plugin/trino-spooling-filesystem": {"SuitePostgresql"},
 
     # Connectors loaded by the all-connectors smoke environment, plus their focused suites.
